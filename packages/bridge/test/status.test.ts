@@ -56,6 +56,17 @@ describe("resolveTransfer", () => {
     expect(leg?.phase).toBe("delivered");
   });
 
+  it("carries Iris forwarding fields but still decides delivery on chain", async () => {
+    const fwd = completeMessage({
+      forwardState: "CONFIRMED",
+      forwardTxHash: "0xcb42b1f0343747c92ce61cc2733f73206a70600857de2d3381cf907cd460b862",
+    });
+    const [ready] = await resolveTransfer({ ...base, iris: iris([fwd]), isNonceUsed: async () => false });
+    expect(ready?.phase).toBe("ready");
+    expect(ready?.forwardState).toBe("CONFIRMED");
+    expect(ready?.forwardTxHash).toBe(fwd.forwardTxHash);
+  });
+
   it("expired when the destination head passed expirationBlock", async () => {
     const msg = withExpiration(INJ_TO_BASE_MESSAGE, 1_000n);
     const [leg] = await resolveTransfer({

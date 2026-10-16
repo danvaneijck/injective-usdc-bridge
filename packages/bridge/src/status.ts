@@ -33,6 +33,10 @@ export interface TransferLeg {
   permissionless?: boolean;
   /** The burn asked Circle's Forwarding Service to mint. */
   forwardRequested?: boolean;
+  /** Iris' view of the forward ("CONFIRMED" once Circle's mint landed). */
+  forwardState?: string;
+  /** Destination mint tx submitted by Circle's forwarder. */
+  forwardTxHash?: Hex;
   delayReason?: string | null;
 }
 
@@ -59,11 +63,13 @@ export async function resolveTransfer(opts: ResolveTransferOptions): Promise<Tra
 }
 
 async function resolveLeg(opts: ResolveTransferOptions, m: IrisMessage): Promise<TransferLeg> {
-  const base = {
+  const base: Omit<TransferLeg, "phase"> = {
     sourceDomain: opts.sourceDomain,
     txHash: opts.txHash,
     delayReason: m.delayReason ?? null,
   };
+  if (m.forwardState) base.forwardState = m.forwardState;
+  if (m.forwardTxHash) base.forwardTxHash = m.forwardTxHash;
   const attested = m.status === "complete" && m.attestation !== "PENDING" && m.message !== "0x";
   if (!attested) return { ...base, phase: "attesting" };
 

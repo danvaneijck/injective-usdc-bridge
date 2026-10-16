@@ -41,6 +41,10 @@ every burn from chain data whether or not that hint arrives.
 | Deposit (X to Injective) | Injective | bridge-service. Circle does not forward to Injective (`Destination domain not supported for forwarding`) |
 
 Forwarding is asked for with hook data `cctp-forward` v0 (`FORWARD_HOOK_DATA`).
+Iris then returns two undocumented fields on the message, `forwardState`
+(`CONFIRMED` once the mint landed) and `forwardTxHash` (the destination mint),
+which `resolveTransfer` passes through for display. Delivery is still decided
+by `usedNonces`.
 Circle will not forward a burn with a `destinationCaller` set, which is one more
 reason every burn here is permissionless.
 
@@ -185,7 +189,7 @@ conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
 | Phase | Scope |
 | --- | --- |
 | 0 | **Done**: core package, verified registry, BridgeReceiver, 30 TS + 27 Foundry tests. |
-| Gate | A $1 live withdrawal Injective to Base with forwarding (`npm run live-withdraw`), to confirm Circle mints for Injective-sourced burns end to end. |
+| Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
 | 1 | bridge-service in shadow mode, then relaying. |
 | 2 | Widget, integrated in Choice v2 (viem, easiest), then the launchpad (replacing the jumper.xyz link). |
 | 3 | Solana legs (port v1 `solanaCctp.ts`; forwarding needs the recipient's USDC ATA and the extended hook for ATA creation). HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |

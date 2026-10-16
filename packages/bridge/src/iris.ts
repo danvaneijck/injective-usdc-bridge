@@ -26,7 +26,14 @@ export interface IrisMessage {
       hookData: Hex | null;
     } | null;
   } | null;
-  /** Anything else Iris adds (forwarding fields are undocumented). */
+  /**
+   * Present on burns that asked for Circle's Forwarding Service. Not in
+   * Circle's docs; seen live 2026-10-16 as "CONFIRMED" with the destination
+   * mint tx. A hint for display only: delivery is still decided by usedNonces.
+   */
+  forwardState?: string;
+  forwardTxHash?: Hex;
+  /** Anything else Iris adds. */
   [key: string]: unknown;
 }
 

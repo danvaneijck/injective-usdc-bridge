@@ -113,9 +113,10 @@ while (Date.now() < deadline) {
     last = line;
   }
   if (leg?.phase === "delivered") {
-    const fwd = Object.entries(leg).filter(([k]) => k.toLowerCase().includes("forward"));
     console.log(`delivered  minted ${usd(leg.burn!.amount - leg.burn!.feeExecuted)} (feeExecuted ${usd(leg.burn!.feeExecuted)})`);
-    if (fwd.length) console.log(`iris forward fields ${JSON.stringify(Object.fromEntries(fwd))}`);
+    if (leg.forwardTxHash) {
+      console.log(`forwarded  ${leg.forwardState} ${explorerTxUrl(destination, leg.forwardTxHash)}`);
+    }
     process.exit(0);
   }
   await new Promise((r) => setTimeout(r, 10_000));
