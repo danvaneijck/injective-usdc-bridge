@@ -28,5 +28,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          # Same forge as development; "stable" moved to 1.8.x and changed gas.
+          version: v1.5.1
       - run: forge test
         working-directory: contracts

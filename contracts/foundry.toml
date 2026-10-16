@@ -3,6 +3,9 @@ src = "src"
 out = "out"
 libs = ["lib"]
 solc = "0.8.24"
+# Injective EVM's target. Pinned so a newer forge default cannot change the
+# bytecode or the gas schedule tests run under.
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 remappings = [
