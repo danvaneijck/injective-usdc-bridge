@@ -34,7 +34,8 @@
     "./react/styles.css": "./dist/react/styles.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "keywords": [
     "injective",

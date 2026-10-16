@@ -1,8 +1,9 @@
 /**
  * Browser smoke test for the site, in real Chrome. A stand-in wallet announces
  * itself over EIP-6963 and answers reads only (it refuses anything that would
- * sign), so this exercises connect, quoting against Circle, the chain list,
- * the activity list and a tracking page, and fails on any page error.
+ * sign), so this exercises connect, quoting against Circle, the chain picker,
+ * the activity list, a tracking page and the status page, and fails on any
+ * page error.
  *
  *   npm run dev &   # or point SITE_URL at a deployed site
  *   WALLET=0x... node scripts/smoke.mjs
@@ -68,7 +69,9 @@ await check("connects through EIP-6963", async () => {
 
 await check("quotes a Base deposit", async () => {
   await page.getByLabel("Amount of USDC").fill("25");
-  await page.getByText("You receive at least").waitFor({ timeout: 20_000 });
+  // The breakdown sits behind its summary line; open it once and it stays open.
+  await page.getByRole("button", { name: /^About .*(No fees|Fees)/ }).click({ timeout: 20_000 });
+  await page.getByText("You receive at least").waitFor({ timeout: 5000 });
 });
 
 await check("offers the gas drop on deposits", async () => {
@@ -76,12 +79,25 @@ await check("offers the gas drop on deposits", async () => {
   await page.screenshot({ path: `${OUT}/1-deposit.png` });
 });
 
-await check("lists chains", async () => {
-  await page.getByRole("button", { name: /Base/ }).first().click();
-  await page.getByText("Bridge from").waitFor();
+await check("picks a chain from the sheet", async () => {
+  await page.getByRole("button", { name: /^Base/ }).first().click();
+  const sheet = page.getByRole("dialog", { name: "Bridge from" });
+  await sheet.waitFor();
+  await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/2-chains.png` });
-  await page.getByRole("button", { name: /Arbitrum/ }).click();
+  await sheet.getByRole("button", { name: /Arbitrum/ }).click();
+  await sheet.waitFor({ state: "detached" });
   await page.getByText("You receive at least").waitFor({ timeout: 20_000 });
+});
+
+await check("searches chains and closes on Escape", async () => {
+  await page.getByRole("button", { name: /^Arbitrum/ }).first().click();
+  const sheet = page.getByRole("dialog", { name: "Bridge from" });
+  await page.getByLabel("Search chains").fill("mon");
+  const rows = await sheet.locator(".iub-chains button").allInnerTexts();
+  if (rows.length !== 1 || !rows[0].startsWith("Monad")) throw new Error(`search "mon" showed ${JSON.stringify(rows)}`);
+  await page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "detached" });
 });
 
 await check("quotes a withdrawal with Circle delivery, never showing the old quote", async () => {
@@ -110,14 +126,28 @@ if (TRACK) {
   });
 }
 
+await check("status page reads the health report", async () => {
+  const s = await open({ width: 1280, height: 900 });
+  await s.goto(`${SITE}/status`);
+  await s.getByRole("heading", { name: "Chains" }).waitFor();
+  await s.locator(".status-chain").first().waitFor({ timeout: 15_000 });
+  const lanes = await s.locator(".status-chain").count();
+  if (lanes < 10) throw new Error(`only ${lanes} chains listed`);
+  const title = await s.locator(".status-hero h2").innerText();
+  if (/Cannot reach|Checking/.test(title)) throw new Error(`status hero says "${title}"`);
+  await s.screenshot({ path: `${OUT}/7-status.png`, fullPage: true });
+});
+
 await check("fits a phone", async () => {
   const m = await open({ width: 390, height: 844 });
-  await m.goto(`${SITE}/`);
-  await m.getByLabel("Amount of USDC").fill("100");
-  await m.waitForTimeout(3000);
-  const overflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-  if (overflow) throw new Error("page scrolls sideways at 390px");
-  await m.screenshot({ path: `${OUT}/6-phone.png`, fullPage: true });
+  for (const path of ["/", "/status"]) {
+    await m.goto(`${SITE}${path}`);
+    if (path === "/") await m.getByLabel("Amount of USDC").fill("100");
+    await m.waitForTimeout(3000);
+    const overflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    if (overflow) throw new Error(`${path} scrolls sideways at 390px`);
+    await m.screenshot({ path: `${OUT}/${path === "/" ? "6-phone" : "8-phone-status"}.png`, fullPage: true });
+  }
 });
 
 await browser.close();

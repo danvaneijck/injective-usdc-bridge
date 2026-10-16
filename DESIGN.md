@@ -294,10 +294,17 @@ Choice v2 look, themeable):
   withdrawals Circle does not deliver, e.g. Plasma).
 - Activity: the service's list for the wallet plus journal entries it has
   not returned yet, each looked up by hash (which makes the service index it).
-- Chain logos are v1's SVGs on a light disc (several are black), rendered as
-  `<img>` data URLs; chains without one get a lettered badge.
+- Chain logos are web3icons' brand-colour marks (MIT, see
+  `packages/bridge/THIRD_PARTY_NOTICES.md`) for all 17 chains, rendered as
+  `<img>` data URLs in circles; an unknown chain gets a lettered disc.
+- Chains are picked from a sheet that slides up over the widget (never over
+  the host page, so an embedding app's stacking stays out of it): search,
+  arrow keys, Escape, focus kept inside. Motion is CSS only and collapses under
+  `prefers-reduced-motion`.
 - The site (`apps/site`) adds EIP-6963 wallet discovery, `/tx/<domain>/<hash>`
-  pages, and is served by the bridge service itself (`SITE_DIR`): hashed
+  pages, a `/status` page that reads `/v1/health` (every chain's sync, in-flight
+  transfers, auto-delivery and the gas-drop float, refreshed every 15 s), and
+  is served by the bridge service itself (`SITE_DIR`): hashed
   assets cached for a year, the page uncached, CSP with
   `frame-ancestors 'none'` against clickjacking (scripts: self plus the
   Cloudflare analytics beacon its edge injects). `npm run smoke` drives it in

@@ -30,6 +30,11 @@ function remember(rdns: string | null) {
   }
 }
 
+/** The rdns of the wallet this browser last connected, if any. */
+export function lastWallet(): string | null {
+  return remembered();
+}
+
 function remembered(): string | null {
   try {
     return localStorage.getItem(LAST_KEY);

@@ -7,7 +7,7 @@ embedded in any Injective app.
 | --- | --- |
 | [`packages/bridge`](packages/bridge) | npm package `injective-usdc-bridge`: chain registry, fee quotes, burn builders, Circle attestation client, delivery status; `injective-usdc-bridge/react` is the widget |
 | [`service`](service) | bridge-service: indexes every burn to or from Injective, tracks it to the mint, mints stuck deposits, keeps its own gas topped up; serves the API and the site |
-| [`apps/site`](apps/site) | The standalone site (bridge.choice.exchange): the widget plus a wallet picker and `/tx/<domain>/<hash>` tracking pages |
+| [`apps/site`](apps/site) | The standalone site (bridge.choice.exchange): the widget plus a wallet picker, `/tx/<domain>/<hash>` tracking pages and a `/status` page |
 | [`contracts`](contracts) | `BridgeReceiver`: Injective-side relay for deposits that include an INJ gas drop |
 | [`DESIGN.md`](DESIGN.md) | Architecture, rules learned from the previous bridge, phases |
 
@@ -63,7 +63,9 @@ It quotes, approves and burns, tracks every transfer through the bridge
 service (`apiUrl`, default `https://bridge-api.choice.exchange`), and offers a
 one-click finish for anything stuck. Restyle it with the `--iub-*` CSS
 variables on `.iub`; the defaults follow Choice v2. `TransferStatus` is the
-tracking card on its own.
+tracking card on its own; `ChainLogo` and `ChainPair` are the chain marks.
+The logos are web3icons' (MIT), see
+[`THIRD_PARTY_NOTICES.md`](packages/bridge/THIRD_PARTY_NOTICES.md).
 
 ## Development
 

@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type Address, type Hex, formatEther, formatUnits, getAddress, isAddress, parseEther } from "viem";
 import { erc20Abi } from "../abis.js";
 import { toEvmAddress, toInjAddress } from "../address.js";
@@ -8,9 +8,10 @@ import { CCTP_CONTRACTS, FINALITY, type Speed, USDC_DECIMALS } from "../constant
 import type { Direction } from "../quote.js";
 import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
+import { ChainPicker } from "./ChainPicker.js";
 import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
 import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useUsdcBalance } from "./hooks.js";
-import { IconChevron, IconFlip, Spinner } from "./icons.js";
+import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconWallet, Spinner } from "./icons.js";
 import type { Eip1193Provider } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
 
@@ -39,6 +40,15 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
+  const [flips, setFlips] = useState(0);
+  const [details, setDetails] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+
+  // While the chain sheet is up, the form behind it is out of reach of
+  // keyboards and screen readers. (React 18 has no `inert` prop.)
+  useEffect(() => {
+    body.current?.toggleAttribute("inert", picking);
+  }, [picking]);
 
   const peer = env.peerChains.find((c) => c.key === peerKey) ?? env.peerChains[0]!;
   const deposit = direction === "deposit";
@@ -74,12 +84,14 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
   const fresh = quote !== null && amount !== null && quote.amount === amount;
   const fastEta = expectedAttestMs(env.network, source.domain, FINALITY.fast);
   const standardEta = expectedAttestMs(env.network, source.domain, FINALITY.standard);
+  const eta = speed === "fast" ? fastEta : standardEta;
 
   function flip() {
     setDirection(deposit ? "withdraw" : "deposit");
     setRecipientText(null);
     setSpeedChoice(null);
     setError(null);
+    setFlips((n) => n + 1);
   }
 
   async function submit() {
@@ -125,9 +137,194 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
   else if (!fresh) action = { label: "Getting a quote", enabled: false };
   else action = { label: deposit ? "Bridge to Injective" : `Bridge to ${destination.name}`, enabled: true, run: () => void submit() };
 
-  if (picking) {
-    return (
-      <ChainList
+  // After a flip each panel slides in from where the other one was.
+  const swap = flips > 0;
+  const fee = quote && fresh ? quote.protocolFee + quote.forwardingFee + quote.bridgeFee : null;
+
+  return (
+    <>
+      <div className="iub-body" ref={body}>
+        <Side
+          key={`from:${direction}`}
+          className={swap ? "iub-swap-up" : undefined}
+          label="From"
+          chain={source}
+          locked={!deposit}
+          onPick={() => setPicking(true)}
+          extra={
+            address && balance !== null ? (
+              <span className="iub-balance">
+                <span className="iub-muted">Balance</span> {formatUsdc(balance)}
+                {balance > 0n ? (
+                  <button type="button" className="iub-max" onClick={() => setAmountText(formatUnits(balance, USDC_DECIMALS))}>
+                    MAX
+                  </button>
+                ) : null}
+              </span>
+            ) : null
+          }
+        >
+          <div className="iub-amount">
+            <input
+              className="iub-amount-input"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="0.00"
+              aria-label="Amount of USDC"
+              value={amountText}
+              onChange={(e) => setAmountText(sanitizeAmountInput(e.target.value))}
+            />
+            <span className="iub-token">
+              <UsdcLogo size={22} /> USDC
+            </span>
+          </div>
+        </Side>
+
+        <div className="iub-flip-row">
+          <button type="button" className="iub-flip" onClick={flip} aria-label="Swap direction" style={{ transform: `rotate(${flips * 180}deg)` }}>
+            <IconFlip />
+          </button>
+        </div>
+
+        <Side
+          key={`to:${direction}`}
+          className={swap ? "iub-swap-down" : undefined}
+          label="To"
+          chain={destination}
+          locked={deposit}
+          onPick={() => setPicking(true)}
+        >
+          <div className="iub-amount iub-amount-out">
+            {loading && !fresh ? (
+              <span className="iub-skeleton iub-skeleton-amount" aria-label="Getting a quote" />
+            ) : (
+              <span key={fresh ? String(quote.minReceived) : "none"} className={fresh ? "iub-amount-value iub-fade" : "iub-amount-value iub-dim"}>
+                {fresh ? formatUsdc(quote.minReceived, 6) : "0.00"}
+              </span>
+            )}
+            <span className="iub-token">
+              <UsdcLogo size={22} /> USDC
+            </span>
+          </div>
+          {wantDrop && drop ? <div className="iub-plus">+ {formatEther(drop.dropWei)} INJ for gas</div> : null}
+        </Side>
+
+        {slowLane ? (
+          <Note tone="warn">
+            Circle is slower than usual to approve transfers from {source.name} right now. Transfers are safe and still complete.
+          </Note>
+        ) : null}
+
+        {source.fastSource ? (
+          <div className="iub-segment" role="radiogroup" aria-label="Speed" data-active={speed === "fast" ? "0" : "1"}>
+            <span className="iub-segment-indicator" aria-hidden />
+            <button type="button" role="radio" aria-checked={speed === "fast"} onClick={() => setSpeedChoice("fast")}>
+              <span className="iub-segment-title">
+                <IconBolt /> Fast
+              </span>
+              <span className="iub-segment-sub">About {formatDuration(fastEta)}</span>
+            </button>
+            <button type="button" role="radio" aria-checked={speed === "standard"} onClick={() => setSpeedChoice("standard")}>
+              <span className="iub-segment-title">
+                <IconClock /> Standard
+              </span>
+              <span className="iub-segment-sub">About {formatDuration(standardEta)}, no Circle fee</span>
+            </button>
+          </div>
+        ) : null}
+
+        {dropOffered && drop ? (
+          <button type="button" role="switch" aria-checked={wantDrop} className="iub-toggle-row" onClick={() => setDropChoice(!wantDrop)}>
+            <ChainLogo chain="injective" name="Injective" size={32} />
+            <span className="iub-toggle-text">
+              <strong>Add {formatEther(drop.dropWei)} INJ for gas</strong>
+              <span className="iub-muted">
+                {formatUsdc(drop.dropFee)} USDC.{" "}
+                {injBalance === 0n ? "Your Injective wallet has no INJ yet." : "Pays for your first transactions on Injective."}
+              </span>
+            </span>
+            <span className="iub-switch" aria-hidden />
+          </button>
+        ) : null}
+
+        <Recipient
+          deposit={deposit}
+          destination={destination}
+          address={address}
+          text={recipientText}
+          valid={recipient !== null}
+          onChange={setRecipientText}
+        />
+
+        {!deposit && !destination.forwarding ? (
+          <Note>
+            Circle does not deliver on {destination.name}. Once approved, you claim it there yourself, which needs {destination.nativeSymbol} for gas.
+          </Note>
+        ) : null}
+
+        {quote && fresh && fee !== null ? (
+          <div className={details ? "iub-details iub-open" : "iub-details"}>
+            <button type="button" className="iub-details-toggle" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
+              <span className="iub-details-time">
+                <IconClock /> About {formatDuration(eta)}
+              </span>
+              <span className="iub-details-fee">
+                {fee === 0n ? "No fees" : `${quote.protocolFee > 0n ? "Fees up to" : "Fees"} ${formatUsdc(fee, 6)} USDC`}
+              </span>
+              <span className="iub-details-chevron">
+                <IconChevron />
+              </span>
+            </button>
+            <div className="iub-details-body">
+              <div>
+                <dl className="iub-fees">
+                  <div>
+                    <dt>Circle fee</dt>
+                    <dd>{quote.protocolFee > 0n ? `Up to ${formatUsdc(quote.protocolFee, 6)} USDC` : "Free"}</dd>
+                  </div>
+                  <div>
+                    <dt>Delivery</dt>
+                    <dd>
+                      {quote.forwarded
+                        ? `${formatUsdc(quote.forwardingFee, 6)} USDC, by Circle`
+                        : deposit
+                          ? "Free, done for you"
+                          : "You claim it"}
+                    </dd>
+                  </div>
+                  {quote.gasDropFee > 0n && drop ? (
+                    <div>
+                      <dt>{formatEther(drop.dropWei)} INJ for gas</dt>
+                      <dd>{formatUsdc(quote.gasDropFee)} USDC</dd>
+                    </div>
+                  ) : null}
+                  <div className="iub-fees-total">
+                    <dt>You receive at least</dt>
+                    <dd>
+                      {formatUsdc(quote.minReceived, 6)} USDC{quote.gasDropFee > 0n && drop ? ` + ${formatEther(drop.dropWei)} INJ` : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Time</dt>
+                    <dd>About {formatDuration(eta)}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? <Note tone="error">{error}</Note> : null}
+
+        <button type="button" className={busy ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={!action.enabled} onClick={action.run}>
+          {busy || (loading && !fresh && amount) ? <Spinner /> : null}
+          {action.label}
+        </button>
+      </div>
+
+      <ChainPicker
+        open={picking}
+        network={env.network}
         chains={env.peerChains}
         direction={direction}
         selected={peer.key}
@@ -138,146 +335,15 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
         }}
         onClose={() => setPicking(false)}
       />
-    );
-  }
+    </>
+  );
+}
 
+function Note({ tone, children }: { tone?: "warn" | "error"; children: ReactNode }) {
   return (
-    <div className="iub-body">
-      <Side
-        label="From"
-        chain={source}
-        locked={!deposit}
-        onPick={() => setPicking(true)}
-        extra={
-          address && balance !== null ? (
-            <button type="button" className="iub-link" onClick={() => setAmountText(formatUnits(balance, USDC_DECIMALS))}>
-              Balance {formatUsdc(balance)} <span className="iub-max">MAX</span>
-            </button>
-          ) : null
-        }
-      >
-        <div className="iub-amount">
-          <input
-            className="iub-amount-input"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0.00"
-            aria-label="Amount of USDC"
-            value={amountText}
-            onChange={(e) => setAmountText(sanitizeAmountInput(e.target.value))}
-          />
-          <span className="iub-token">
-            <UsdcLogo /> USDC
-          </span>
-        </div>
-      </Side>
-
-      <div className="iub-flip-row">
-        <button type="button" className="iub-flip" onClick={flip} aria-label="Swap direction">
-          <IconFlip />
-        </button>
-      </div>
-
-      <Side label="To" chain={destination} locked={deposit} onPick={() => setPicking(true)}>
-        <div className="iub-amount iub-amount-out">
-          <span className={quote && fresh ? "iub-amount-value" : "iub-amount-value iub-dim"}>
-            {quote && fresh ? formatUsdc(quote.minReceived, 6) : "0.00"}
-          </span>
-          <span className="iub-token">
-            <UsdcLogo /> USDC
-          </span>
-        </div>
-        {wantDrop && drop ? <div className="iub-plus">+ {formatEther(drop.dropWei)} INJ for gas</div> : null}
-      </Side>
-
-      {slowLane ? (
-        <div className="iub-note iub-note-warn">
-          Circle is slower than usual to approve transfers from {source.name} right now. Transfers are safe and still complete.
-        </div>
-      ) : null}
-
-      {source.fastSource ? (
-        <div className="iub-segment" role="radiogroup" aria-label="Speed">
-          <button type="button" role="radio" aria-checked={speed === "fast"} onClick={() => setSpeedChoice("fast")}>
-            <strong>Fast</strong>
-            <span>About {formatDuration(fastEta)}</span>
-          </button>
-          <button type="button" role="radio" aria-checked={speed === "standard"} onClick={() => setSpeedChoice("standard")}>
-            <strong>Standard</strong>
-            <span>About {formatDuration(standardEta)}, no Circle fee</span>
-          </button>
-        </div>
-      ) : null}
-
-      {dropOffered && drop ? (
-        <label className="iub-check">
-          <input type="checkbox" checked={wantDrop} onChange={(e) => setDropChoice(e.target.checked)} />
-          <span>
-            <strong>Add {formatEther(drop.dropWei)} INJ for gas</strong>
-            <span className="iub-muted">
-              {formatUsdc(drop.dropFee)} USDC.{" "}
-              {injBalance === 0n ? "Your Injective wallet has no INJ yet." : "Pays for your first transactions on Injective."}
-            </span>
-          </span>
-        </label>
-      ) : null}
-
-      <Recipient
-        deposit={deposit}
-        destination={destination}
-        address={address}
-        text={recipientText}
-        valid={recipient !== null}
-        onChange={setRecipientText}
-      />
-
-      {!deposit && !destination.forwarding ? (
-        <div className="iub-note">
-          Circle does not deliver on {destination.name}. Once approved, you claim it there yourself, which needs {destination.nativeSymbol} for gas.
-        </div>
-      ) : null}
-
-      {quote && fresh ? (
-        <dl className="iub-fees">
-          <div>
-            <dt>Circle fee</dt>
-            <dd>{quote.protocolFee > 0n ? `Up to ${formatUsdc(quote.protocolFee, 6)} USDC` : "Free"}</dd>
-          </div>
-          <div>
-            <dt>Delivery</dt>
-            <dd>
-              {quote.forwarded
-                ? `${formatUsdc(quote.forwardingFee, 6)} USDC, by Circle`
-                : deposit
-                  ? "Free, done for you"
-                  : "You claim it"}
-            </dd>
-          </div>
-          {quote.gasDropFee > 0n && drop ? (
-            <div>
-              <dt>{formatEther(drop.dropWei)} INJ for gas</dt>
-              <dd>{formatUsdc(quote.gasDropFee)} USDC</dd>
-            </div>
-          ) : null}
-          <div className="iub-fees-total">
-            <dt>You receive at least</dt>
-            <dd>
-              {formatUsdc(quote.minReceived, 6)} USDC{quote.gasDropFee > 0n && drop ? ` + ${formatEther(drop.dropWei)} INJ` : ""}
-            </dd>
-          </div>
-          <div>
-            <dt>Time</dt>
-            <dd>About {formatDuration(speed === "fast" ? fastEta : standardEta)}</dd>
-          </div>
-        </dl>
-      ) : null}
-
-      {error ? <div className="iub-note iub-note-error">{error}</div> : null}
-
-      <button type="button" className="iub-primary" disabled={!action.enabled} onClick={action.run}>
-        {busy || (loading && !fresh && amount) ? <Spinner /> : null}
-        {action.label}
-      </button>
+    <div className={tone ? `iub-note iub-note-${tone}` : "iub-note"} role={tone === "error" ? "alert" : undefined}>
+      {tone ? <IconAlert /> : <IconInfo />}
+      <span>{children}</span>
     </div>
   );
 }
@@ -288,6 +354,7 @@ function Side({
   locked,
   onPick,
   extra,
+  className,
   children,
 }: {
   label: string;
@@ -295,22 +362,23 @@ function Side({
   locked: boolean;
   onPick: () => void;
   extra?: ReactNode;
+  className?: string | undefined;
   children: ReactNode;
 }) {
   return (
-    <div className="iub-side">
+    <div className={className ? `iub-side ${className}` : "iub-side"}>
       <div className="iub-side-head">
         <span className="iub-label">{label}</span>
         {extra}
       </div>
       {locked ? (
         <div className="iub-chain iub-chain-locked">
-          <ChainLogo chain={chain.key} name={chain.name} />
+          <ChainLogo chain={chain.key} name={chain.name} size={26} />
           <span>{chain.name}</span>
         </div>
       ) : (
-        <button type="button" className="iub-chain" onClick={onPick}>
-          <ChainLogo chain={chain.key} name={chain.name} />
+        <button type="button" className="iub-chain" onClick={onPick} aria-haspopup="dialog">
+          <ChainLogo chain={chain.key} name={chain.name} size={26} />
           <span>{chain.name}</span>
           <IconChevron />
         </button>
@@ -337,10 +405,14 @@ function Recipient({
 }) {
   if (text === null) {
     if (!address) return null;
+    const shown = deposit ? toInjAddress(address) : address;
     return (
       <div className="iub-recipient">
+        <IconWallet />
         <span className="iub-muted">To your wallet on {destination.name}</span>
-        <span title={deposit ? toInjAddress(address) : address}>{shortAddress(deposit ? toInjAddress(address) : address)}</span>
+        <span className="iub-mono" title={shown}>
+          {shortAddress(shown)}
+        </span>
         <button type="button" className="iub-link" onClick={() => onChange("")}>
           Change
         </button>
@@ -352,51 +424,17 @@ function Recipient({
       <input
         className={valid || text === "" ? "iub-input" : "iub-input iub-input-bad"}
         placeholder={deposit ? "inj1... or 0x... address on Injective" : `0x... address on ${destination.name}`}
+        aria-label={`Recipient on ${destination.name}`}
         value={text}
         spellCheck={false}
         autoComplete="off"
         onChange={(e) => onChange(e.target.value)}
       />
-      <button type="button" className="iub-link" onClick={() => onChange(null)}>
-        Use my wallet
-      </button>
-    </div>
-  );
-}
-
-function ChainList({
-  chains,
-  direction,
-  selected,
-  onPick,
-  onClose,
-}: {
-  chains: EvmChain[];
-  direction: Direction;
-  selected: string;
-  onPick: (key: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="iub-body">
-      <div className="iub-list-head">
-        <span>{direction === "deposit" ? "Bridge from" : "Bridge to"}</span>
-        <button type="button" className="iub-link" onClick={onClose}>
-          Close
+      {address ? (
+        <button type="button" className="iub-link" onClick={() => onChange(null)}>
+          Use my wallet
         </button>
-      </div>
-      <ul className="iub-chains">
-        {chains.map((c) => (
-          <li key={c.key}>
-            <button type="button" aria-current={c.key === selected} onClick={() => onPick(c.key)}>
-              <ChainLogo chain={c.key} name={c.name} size={28} />
-              <span className="iub-chains-name">{c.name}</span>
-              {direction === "deposit" && c.fastSource ? <span className="iub-chip">Fast</span> : null}
-              {direction === "withdraw" && !c.forwarding ? <span className="iub-chip iub-chip-muted">Claim yourself</span> : null}
-            </button>
-          </li>
-        ))}
-      </ul>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 export { Bridge } from "./Bridge.js";
+export { ChainLogo, ChainPair, UsdcLogo } from "./ChainLogo.js";
 export { TransferStatus, type TransferStatusProps } from "./TransferStatus.js";
 export { BridgeApi, type TransferView, type Phase, type LaneHealth } from "./api.js";
 export { Journal, type JournalEntry } from "./journal.js";

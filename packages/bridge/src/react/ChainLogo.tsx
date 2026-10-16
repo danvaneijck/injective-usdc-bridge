@@ -1,25 +1,44 @@
-import { CHAIN_COLORS, CHAIN_LOGOS } from "./logos.js";
+import { CHAIN_LOGOS } from "./logos.js";
 
-export function ChainLogo({ chain, name, size = 24 }: { chain: string | null; name: string; size?: number }) {
-  const svg = chain ? CHAIN_LOGOS[chain] : undefined;
-  const style = { width: size, height: size };
-  if (svg) {
-    return (
-      <img
-        className="iub-logo"
-        style={{ ...style, padding: Math.round(size * 0.16) }}
-        alt=""
-        src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
-      />
-    );
+const urls = new Map<string, string>();
+
+function logoUrl(chain: string): string | undefined {
+  const svg = CHAIN_LOGOS[chain];
+  if (!svg) return undefined;
+  let url = urls.get(chain);
+  if (!url) {
+    url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    urls.set(chain, url);
   }
+  return url;
+}
+
+/** A chain's mark on its brand colour, as a circle; a lettered disc for unknown chains. */
+export function ChainLogo({ chain, name, size = 24 }: { chain: string | null; name: string; size?: number }) {
+  const src = chain ? logoUrl(chain) : undefined;
+  const style = { width: size, height: size };
+  if (src) return <img className="iub-logo" style={style} alt="" src={src} draggable={false} />;
   return (
-    <span
-      className="iub-logo iub-logo-badge"
-      style={{ ...style, background: (chain && CHAIN_COLORS[chain]) || "var(--iub-raised)", fontSize: size * 0.46 }}
-      aria-hidden
-    >
+    <span className="iub-logo iub-logo-badge" style={{ ...style, fontSize: size * 0.46 }} aria-hidden>
       {name.charAt(0)}
+    </span>
+  );
+}
+
+/** Source and destination, the second tucked under the first. */
+export function ChainPair({
+  from,
+  to,
+  size = 28,
+}: {
+  from: { chain: string | null; name: string };
+  to: { chain: string | null; name: string };
+  size?: number;
+}) {
+  return (
+    <span className="iub-pair" style={{ width: size * 1.6, height: size }} role="img" aria-label={`${from.name} to ${to.name}`}>
+      <ChainLogo chain={from.chain} name={from.name} size={size} />
+      <ChainLogo chain={to.chain} name={to.name} size={size} />
     </span>
   );
 }

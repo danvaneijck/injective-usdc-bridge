@@ -172,7 +172,7 @@ export interface ActivityItem {
  * signed that the service has not returned yet (looked up one by one, which
  * also makes the service index it).
  */
-export function useActivity(env: Env, address: Address | null): { items: ActivityItem[]; error: string | null } {
+export function useActivity(env: Env, address: Address | null): { items: ActivityItem[]; loading: boolean; error: string | null } {
   const { data, error } = usePoll(
     address ? `activity:${address}` : null,
     async () => {
@@ -191,5 +191,5 @@ export function useActivity(env: Env, address: Address | null): { items: Activit
     },
     15_000,
   );
-  return { items: data ?? [], error };
+  return { items: data ?? [], loading: address !== null && data === null && error === null, error };
 }
