@@ -299,11 +299,12 @@ Choice v2 look, themeable):
 - The site (`apps/site`) adds EIP-6963 wallet discovery, `/tx/<domain>/<hash>`
   pages, and is served by the bridge service itself (`SITE_DIR`): hashed
   assets cached for a year, the page uncached, CSP with
-  `frame-ancestors 'none'` against clickjacking. `npm run smoke` drives it in
+  `frame-ancestors 'none'` against clickjacking (scripts: self plus the
+  Cloudflare analytics beacon its edge injects). `npm run smoke` drives it in
   real Chrome with a read-only stand-in wallet.
-- 🔴 Do not send people to it before `MODE=relay`: a gas-drop deposit can
-  only be completed through BridgeReceiver, and a plain deposit's user would
-  need INJ to finish it themselves.
+- It must only run alongside `MODE=relay`: a gas-drop deposit can only be
+  completed through BridgeReceiver, and a plain deposit's user would need INJ
+  to finish it themselves.
 
 ## Phases
 
@@ -311,11 +312,12 @@ Choice v2 look, themeable):
 | --- | --- |
 | 0 | **Done**: core package, verified registry, BridgeReceiver, 30 TS + 27 Foundry tests. |
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
-| 1 | **Built.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Next: deploy in shadow, then `MODE=relay` with a funded relayer key. |
-| 2 | **Widget built** and live-tested in Chrome on the standalone site (own site first, then Choice v2 and the launchpad, replacing their jumper.xyz links). |
+| 1 | **Live.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Shadow at bridge-api.choice.exchange from 2026-10-16; `MODE=relay` with the keeper from 2026-10-16 22:25Z (receiver and relayer seeded 0.05 INJ each). |
+| 2 | **Widget live** on bridge.choice.exchange from 2026-10-16 22:26Z, smoke-tested in Chrome against production. Next: Choice v2 and the launchpad, replacing their jumper.xyz links. |
 | 3 | Solana legs (port v1 `solanaCctp.ts`; forwarding needs the recipient's USDC ATA and the extended hook for ATA creation). HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |
 
 ## Open
 
-- Seed the receiver and the relayer (~0.1 INJ total), then `MODE=relay`.
+- Choice v2 and the launchpad embed the widget.
+- Record who minted each deposit (`minted_by` is "unknown" unless we relayed it).

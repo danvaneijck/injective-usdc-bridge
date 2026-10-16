@@ -103,6 +103,7 @@ describe("site", () => {
     expect(page.headers.get("content-type")).toMatch(/text\/html/);
     expect(page.headers.get("cache-control")).toBe("no-cache");
     expect(page.headers.get("content-security-policy")).toMatch(/frame-ancestors 'none'/);
+    expect(page.headers.get("content-security-policy")).toMatch(/script-src 'self' https:\/\/static\.cloudflareinsights\.com;/);
     const asset = await app.request("/assets/app-abc123.js");
     expect(asset.headers.get("content-type")).toMatch(/javascript/);
     expect(asset.headers.get("cache-control")).toMatch(/immutable/);

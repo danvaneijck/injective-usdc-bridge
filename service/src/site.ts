@@ -18,11 +18,13 @@ const TYPES: Record<string, string> = {
 /**
  * The page may talk to any https endpoint (Circle's API, every chain's RPC)
  * and nothing may frame it: a bridge inside someone else's iframe is a
- * clickjacking target. Wallet extensions inject outside CSP's reach.
+ * clickjacking target. Wallet extensions inject outside CSP's reach. The one
+ * outside script is Cloudflare's analytics beacon, which its edge injects into
+ * every page of the zone; it already sits in front of the site.
  */
 export const SITE_CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self'",
