@@ -143,6 +143,7 @@ const api = createApi({
     await ingestTx({ chain, network: config.network, client: reader.clientFor(domain), store, ctx, txHash, now: now() });
     await tracker.checkTx(domain, txHash);
   },
+  siteDir: config.siteDir,
 });
 
 let running = true;

@@ -8,3 +8,4 @@ coverage/
 data/
 *.sqlite
 *.sqlite-*
+smoke-out/

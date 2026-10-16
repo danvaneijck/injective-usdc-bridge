@@ -4,7 +4,9 @@
   "description": "Native USDC bridge to and from Injective over Circle CCTP V2: chain registry, burn builders, attestation client and delivery status.",
   "license": "MIT",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,7 +20,18 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
-    }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react/index.d.ts",
+        "default": "./dist/react/index.js"
+      },
+      "require": {
+        "types": "./dist/react/index.d.cts",
+        "default": "./dist/react/index.cjs"
+      }
+    },
+    "./react/styles.css": "./dist/react/styles.css"
   },
   "files": [
     "dist"
@@ -31,7 +44,7 @@
     "circle"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && cp src/react/styles.css dist/react/styles.css",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify-chains": "tsx scripts/verify-chains.ts",
@@ -48,9 +61,25 @@
     "tsup": "^8.5.1",
     "tsx": "^4.20.0",
     "typescript": "~6.0.3",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "@types/react": "^18.3.31",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@types/react-dom": "^18.3.7"
   },
   "engines": {
     "node": ">=22.12"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   }
 }

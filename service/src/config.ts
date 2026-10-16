@@ -36,6 +36,8 @@ export interface ServiceConfig {
    */
   logRpcOverrides: Record<number, { url: string; span: number }[]>;
   keeper: KeeperSettings;
+  /** The built site to serve beside the API (the image sets it). */
+  siteDir?: string;
 }
 
 /** The refill keeper (relay mode on mainnet): see keeper.ts. */
@@ -157,6 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     rpcOverrides,
     logRpcOverrides,
     keeper: keeperSettings(env),
+    siteDir: env.SITE_DIR || undefined,
   };
   if (config.mode === "relay" && !config.relayerKeyFile) {
     throw new Error("MODE=relay needs RELAYER_KEY_FILE");

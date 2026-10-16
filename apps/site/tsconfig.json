@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "types": ["vite/client"],
+    "paths": {
+      "injective-usdc-bridge": ["../../packages/bridge/src/index.ts"],
+      "injective-usdc-bridge/react": ["../../packages/bridge/src/react/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

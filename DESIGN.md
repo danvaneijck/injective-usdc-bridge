@@ -277,6 +277,34 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
 - Solana code is a lazy chunk.
 - UI copy has no em dashes.
 
+**Built 2026-10-17** (`packages/bridge/src/react`, Dan chose: own site first,
+Choice v2 look, themeable):
+
+- Form: From and To panels with Injective locked on one side and a flip
+  button; chain list with Fast and "Claim yourself" chips; Fast or Standard
+  with Circle's usual time; the gas drop, ticked by default when the
+  recipient holds under 0.01 INJ; recipient as 0x or inj1; fees (Circle fee,
+  delivery, gas drop, at least received, time). A quote is kept with the
+  route, speed and amount it was made for, so a stale one is never shown or
+  signed. Approvals are exact. Sends go through the host's provider, switching
+  or adding the chain; on Injective the fee is pinned and the gas padded.
+- Tracking: three steps (sent, Circle approval with a countdown, arrived),
+  a lane banner when Circle is slow on the source chain, and a Complete
+  button when a transfer has sat attested for 3 minutes (at once for
+  withdrawals Circle does not deliver, e.g. Plasma).
+- Activity: the service's list for the wallet plus journal entries it has
+  not returned yet, each looked up by hash (which makes the service index it).
+- Chain logos are v1's SVGs on a light disc (several are black), rendered as
+  `<img>` data URLs; chains without one get a lettered badge.
+- The site (`apps/site`) adds EIP-6963 wallet discovery, `/tx/<domain>/<hash>`
+  pages, and is served by the bridge service itself (`SITE_DIR`): hashed
+  assets cached for a year, the page uncached, CSP with
+  `frame-ancestors 'none'` against clickjacking. `npm run smoke` drives it in
+  real Chrome with a read-only stand-in wallet.
+- 🔴 Do not send people to it before `MODE=relay`: a gas-drop deposit can
+  only be completed through BridgeReceiver, and a plain deposit's user would
+  need INJ to finish it themselves.
+
 ## Phases
 
 | Phase | Scope |
@@ -284,7 +312,7 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
 | 0 | **Done**: core package, verified registry, BridgeReceiver, 30 TS + 27 Foundry tests. |
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
 | 1 | **Built.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Next: deploy in shadow, then `MODE=relay` with a funded relayer key. |
-| 2 | Widget, integrated in Choice v2 (viem, easiest), then the launchpad (replacing the jumper.xyz link). |
+| 2 | **Widget built** and live-tested in Chrome on the standalone site (own site first, then Choice v2 and the launchpad, replacing their jumper.xyz links). |
 | 3 | Solana legs (port v1 `solanaCctp.ts`; forwarding needs the recipient's USDC ATA and the extended hook for ATA creation). HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |
 

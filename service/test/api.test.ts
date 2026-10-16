@@ -81,3 +81,42 @@ describe("API", () => {
     expect(body.lanes[0]).toMatchObject({ chain: "base", status: "delayed", waiting: 1 });
   });
 });
+
+describe("site", () => {
+  async function siteApp() {
+    const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "iub-site-"));
+    await mkdir(join(dir, "assets"));
+    await writeFile(join(dir, "index.html"), "<!doctype html><title>bridge</title>");
+    await writeFile(join(dir, "assets", "app-abc123.js"), "console.log(1)");
+    const store = memStore();
+    const health = new Health({ store, network: "mainnet", mode: "shadow", chainKeys: [], now: () => 0 });
+    return createApi({ store, network: "mainnet", health, ingest: async () => {}, siteDir: dir });
+  }
+
+  it("serves the page uncached with a CSP that forbids framing, and assets cached for good", async () => {
+    const app = await siteApp();
+    const page = await app.request("/");
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toMatch(/text\/html/);
+    expect(page.headers.get("cache-control")).toBe("no-cache");
+    expect(page.headers.get("content-security-policy")).toMatch(/frame-ancestors 'none'/);
+    const asset = await app.request("/assets/app-abc123.js");
+    expect(asset.headers.get("content-type")).toMatch(/javascript/);
+    expect(asset.headers.get("cache-control")).toMatch(/immutable/);
+  });
+
+  it("answers deep links and escapes with the page, and leaves /v1 to the API", async () => {
+    const app = await siteApp();
+    const deep = await app.request(`/tx/6/${TX}`);
+    expect(await deep.text()).toContain("<title>bridge</title>");
+    const escape = await app.request("/../../etc/passwd");
+    expect(await escape.text()).toContain("<title>bridge</title>");
+    const api = await app.request("/v1/nope");
+    expect(api.status).toBe(404);
+    expect(await api.json()).toEqual({ error: "not found" });
+    expect((await app.request("/v1/health")).headers.get("content-type")).toMatch(/json/);
+  });
+});

@@ -5,12 +5,11 @@ embedded in any Injective app.
 
 | Path | What |
 | --- | --- |
-| [`packages/bridge`](packages/bridge) | npm package `injective-usdc-bridge`: chain registry, fee quotes, burn builders, Circle attestation client, delivery status |
+| [`packages/bridge`](packages/bridge) | npm package `injective-usdc-bridge`: chain registry, fee quotes, burn builders, Circle attestation client, delivery status; `injective-usdc-bridge/react` is the widget |
+| [`service`](service) | bridge-service: indexes every burn to or from Injective, tracks it to the mint, mints stuck deposits, keeps its own gas topped up; serves the API and the site |
+| [`apps/site`](apps/site) | The standalone site (bridge.choice.exchange): the widget plus a wallet picker and `/tx/<domain>/<hash>` tracking pages |
 | [`contracts`](contracts) | `BridgeReceiver`: Injective-side relay for deposits that include an INJ gas drop |
 | [`DESIGN.md`](DESIGN.md) | Architecture, rules learned from the previous bridge, phases |
-
-Status: early. The core package and contract are tested; the relayer service
-and the React widget are next.
 
 ## Chains
 
@@ -49,13 +48,31 @@ const [leg] = await resolveTransfer({
 `delivered` comes only from the destination chain's `usedNonces`; Circle
 reporting an attestation as complete means signed, not minted.
 
+## Widget
+
+```tsx
+import { Bridge } from "injective-usdc-bridge/react";
+import "injective-usdc-bridge/react/styles.css";
+
+// Any wallet library: pass the connected address and its EIP-1193 provider
+// (Keplr and Leap users: their `.ethereum` provider).
+<Bridge wallet={{ address, provider }} onConnectWallet={openWalletPicker} />
+```
+
+It quotes, approves and burns, tracks every transfer through the bridge
+service (`apiUrl`, default `https://bridge-api.choice.exchange`), and offers a
+one-click finish for anything stuck. Restyle it with the `--iub-*` CSS
+variables on `.iub`; the defaults follow Choice v2. `TransferStatus` is the
+tracking card on its own.
+
 ## Development
 
 ```sh
 npm install
-npm test            # package unit tests
+npm test            # package and service unit tests
 npm run typecheck
 cd contracts && forge test
+cd apps/site && npx vite build && WALLET=0x… SITE_URL=… npm run smoke   # real-Chrome check of the site
 ```
 
 ## License

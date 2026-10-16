@@ -1,5 +1,5 @@
 import { type Address, formatUnits } from "viem";
-import { type Network, USDC_DECIMALS, chainByDomain, explorerTxUrl } from "injective-usdc-bridge";
+import { type Network, USDC_DECIMALS, chainByDomain, expectedAttestMs, explorerTxUrl } from "injective-usdc-bridge";
 import type { TransferRow } from "./db.js";
 import { relayCallFor } from "./relayer.js";
 
@@ -19,6 +19,9 @@ export function toView(row: TransferRow, network: Network, bridgeReceiver?: Addr
     amountUsdc: formatUnits(BigInt(row.amount), USDC_DECIMALS),
     maxFee: row.max_fee,
     feeExecuted: row.fee_executed,
+    minFinality: row.min_finality,
+    /** How long Circle normally takes to attest a burn like this one. */
+    expectedAttestSec: Math.round(expectedAttestMs(network, row.src_domain, row.min_finality) / 1000),
     source: {
       domain: row.src_domain,
       chain: src?.key ?? null,

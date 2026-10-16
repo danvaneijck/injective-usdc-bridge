@@ -1,0 +1,670 @@
+/*
+ * injective-usdc-bridge widget. Every rule is scoped under .iub, and every
+ * colour, radius and font is a --iub-* variable: a host restyles it by
+ * setting those on .iub (or any ancestor). Defaults follow Choice v2.
+ */
+.iub {
+  --iub-bg: #101116;
+  --iub-panel: #0c0d11;
+  --iub-raised: #15161a;
+  --iub-hover: #1b1c22;
+  --iub-border: #1c1d23;
+  --iub-text: #e9e9ec;
+  --iub-muted: #9a9ca4;
+  --iub-dim: #6b6e78;
+  --iub-accent: #fdc70c;
+  --iub-accent-hover: #e3b209;
+  --iub-on-accent: #0a0b0d;
+  --iub-positive: #34d399;
+  --iub-negative: #fb7185;
+  --iub-warning: #fbbf24;
+  --iub-radius: 20px;
+  --iub-radius-panel: 14px;
+  --iub-radius-control: 12px;
+  --iub-font: "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 8px;
+  background: var(--iub-bg);
+  border: 1px solid var(--iub-border);
+  border-radius: var(--iub-radius);
+  color: var(--iub-text);
+  font-family: var(--iub-font);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.iub *,
+.iub *::before,
+.iub *::after {
+  box-sizing: border-box;
+}
+.iub button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.iub button:disabled {
+  cursor: not-allowed;
+}
+.iub button:focus-visible,
+.iub input:focus-visible {
+  outline: 2px solid var(--iub-accent);
+  outline-offset: 2px;
+}
+.iub a {
+  color: inherit;
+}
+
+/* Tabs */
+.iub-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 4px;
+}
+.iub-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--iub-radius-control);
+  color: var(--iub-muted);
+  font-weight: 600;
+}
+.iub-tabs button:hover {
+  color: var(--iub-text);
+}
+.iub-tabs button[aria-selected="true"] {
+  background: var(--iub-raised);
+  color: var(--iub-text);
+}
+.iub-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--iub-accent);
+  color: var(--iub-on-accent);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.iub-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+.iub-empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--iub-muted);
+}
+.iub-muted {
+  color: var(--iub-muted);
+}
+.iub-dim {
+  color: var(--iub-dim);
+}
+.iub-link {
+  color: var(--iub-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.iub-link:hover {
+  color: var(--iub-accent);
+}
+
+/* From / To panels */
+.iub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--iub-panel);
+  border: 1px solid var(--iub-border);
+  border-radius: var(--iub-radius-panel);
+}
+.iub-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+}
+.iub-label {
+  color: var(--iub-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.iub-max {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--iub-raised);
+  color: var(--iub-accent);
+  font-size: 10.5px;
+}
+.iub-chain {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  height: 36px;
+  padding: 0 10px 0 6px;
+  border-radius: 18px;
+  background: var(--iub-raised);
+  font-weight: 600;
+}
+button.iub-chain:hover {
+  background: var(--iub-hover);
+}
+.iub-chain-locked {
+  cursor: default;
+}
+.iub-logo {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  object-fit: contain;
+}
+/* Several marks (Linea, Sonic, World Chain) are black: a light disc keeps
+   every one legible. Its padding is set inline from the size (a percentage
+   would follow the parent's width). */
+img.iub-logo {
+  background: var(--iub-logo-disc, #f2f2f4);
+}
+.iub-logo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+}
+.iub-amount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.iub-amount-input,
+.iub-amount-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.iub-amount-input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--iub-text);
+  font-family: inherit;
+}
+.iub-amount-input::placeholder {
+  color: var(--iub-dim);
+}
+/* The panel shows focus instead of a box around the digits. */
+.iub .iub-amount-input:focus-visible {
+  outline: none;
+}
+.iub-side:focus-within {
+  border-color: var(--iub-dim);
+}
+.iub-amount-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iub-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-weight: 600;
+}
+.iub-plus {
+  color: var(--iub-positive);
+  font-size: 12px;
+  font-weight: 600;
+}
+.iub-flip-row {
+  display: flex;
+  justify-content: center;
+  height: 0;
+  position: relative;
+  z-index: 1;
+}
+.iub-flip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-top: -22px;
+  border-radius: 12px;
+  border: 4px solid var(--iub-bg) !important;
+  background: var(--iub-raised) !important;
+  color: var(--iub-muted) !important;
+}
+.iub-flip:hover {
+  color: var(--iub-accent) !important;
+}
+
+/* Options */
+.iub-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.iub-segment button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--iub-radius-control);
+  border: 1px solid var(--iub-border);
+  text-align: left;
+}
+.iub-segment button span {
+  color: var(--iub-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.iub-segment button[aria-checked="true"] {
+  border-color: var(--iub-accent);
+  background: var(--iub-raised);
+}
+.iub-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: var(--iub-radius-control);
+  border: 1px solid var(--iub-border);
+  cursor: pointer;
+}
+.iub-check input {
+  margin: 3px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--iub-accent);
+  flex: none;
+}
+.iub-check > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.iub-check .iub-muted {
+  font-size: 12px;
+  line-height: 16px;
+}
+.iub-recipient,
+.iub-recipient-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.iub-recipient .iub-muted {
+  flex: 1;
+}
+.iub-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--iub-radius-control);
+  border: 1px solid var(--iub-border);
+  background: var(--iub-panel);
+  color: var(--iub-text);
+  font: inherit;
+  font-size: 13px;
+}
+.iub-input-bad {
+  border-color: var(--iub-negative);
+}
+
+/* Fees */
+.iub-fees {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--iub-radius-panel);
+  background: var(--iub-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.iub-fees div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.iub-fees dt {
+  color: var(--iub-muted);
+}
+.iub-fees dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.iub-fees-total dd {
+  font-weight: 700;
+}
+
+/* Notes */
+.iub-note {
+  padding: 10px 12px;
+  border-radius: var(--iub-radius-control);
+  background: var(--iub-raised);
+  color: var(--iub-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.iub-note-warn {
+  color: var(--iub-warning);
+}
+.iub-note-error {
+  color: var(--iub-negative);
+}
+
+/* Primary button */
+.iub-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  margin-top: 4px;
+  border-radius: var(--iub-radius-control);
+  background: var(--iub-accent) !important;
+  color: var(--iub-on-accent) !important;
+  font-weight: 700 !important;
+}
+.iub-primary:hover:not(:disabled) {
+  background: var(--iub-accent-hover) !important;
+}
+.iub-primary:disabled {
+  background: var(--iub-raised) !important;
+  color: var(--iub-dim) !important;
+}
+
+.iub-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: iub-spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes iub-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .iub-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Chain list */
+.iub-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px 6px;
+  font-weight: 700;
+}
+.iub-chains {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.iub-chains button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--iub-radius-control);
+  text-align: left;
+  font-weight: 600;
+}
+.iub-chains button:hover,
+.iub-chains button[aria-current="true"] {
+  background: var(--iub-raised);
+}
+.iub-chains-name {
+  flex: 1;
+}
+.iub-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--iub-positive);
+  font-size: 11px;
+  font-weight: 700;
+}
+.iub-chip-muted {
+  background: var(--iub-raised);
+  color: var(--iub-muted);
+}
+
+/* Tracking */
+.iub-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 4px 6px;
+  color: var(--iub-muted) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+.iub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--iub-radius-panel);
+  background: var(--iub-panel);
+  border: 1px solid var(--iub-border);
+}
+.iub-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.iub-card-foot {
+  font-size: 12px;
+}
+.iub-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.iub-route strong {
+  margin-left: 4px;
+}
+.iub-route-arrow {
+  color: var(--iub-dim);
+  font-size: 11px;
+}
+.iub-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.iub-pill .iub-spinner {
+  width: 10px;
+  height: 10px;
+}
+.iub-pill-progress {
+  background: rgba(253, 199, 12, 0.12);
+  color: var(--iub-accent);
+}
+.iub-pill-done {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--iub-positive);
+}
+.iub-pill-attention {
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--iub-warning);
+}
+.iub-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.iub-step {
+  display: flex;
+  gap: 12px;
+  position: relative;
+  padding-bottom: 16px;
+}
+.iub-step:last-child {
+  padding-bottom: 0;
+}
+.iub-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 26px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--iub-border);
+}
+.iub-step-done:not(:last-child)::after {
+  background: var(--iub-positive);
+}
+.iub-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--iub-raised);
+  color: var(--iub-dim);
+  font-size: 12px;
+  font-weight: 700;
+}
+.iub-step-done .iub-step-dot {
+  background: var(--iub-positive);
+  color: var(--iub-on-accent);
+}
+.iub-step-active .iub-step-dot {
+  background: var(--iub-accent);
+  color: var(--iub-on-accent);
+  box-shadow: 0 0 0 4px rgba(253, 199, 12, 0.15);
+}
+.iub-step-problem .iub-step-dot {
+  background: var(--iub-warning);
+  color: var(--iub-on-accent);
+}
+.iub-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+.iub-step-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.iub-step-waiting .iub-step-label {
+  color: var(--iub-dim);
+}
+.iub-step-detail {
+  color: var(--iub-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.iub-ext {
+  display: inline-flex;
+  color: var(--iub-dim);
+}
+.iub-ext:hover {
+  color: var(--iub-accent);
+}
+.iub-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--iub-border);
+}
+.iub-claim p {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* Activity */
+.iub-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.iub-activity button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 10px;
+  border-radius: var(--iub-radius-control);
+  text-align: left;
+}
+.iub-activity button:hover {
+  background: var(--iub-raised);
+}
+.iub-activity-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.iub-activity-main .iub-muted {
+  font-size: 12px;
+}
+
+@media (max-width: 420px) {
+  .iub {
+    padding: 4px;
+    border-radius: 16px;
+  }
+  .iub-amount-input,
+  .iub-amount-value {
+    font-size: 24px;
+  }
+}

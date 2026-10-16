@@ -1,22 +1,9 @@
-import { FINALITY, type Network, chainByDomain } from "injective-usdc-bridge";
+// The widget shows the same estimate, so it lives in the core package.
+export { expectedAttestMs } from "injective-usdc-bridge";
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
-
-/**
- * Chains whose Standard attestation waits for Ethereum finality (~13-19 min).
- * Elsewhere Standard is seconds to a couple of minutes.
- */
-const L1_FINALITY = new Set(["ethereum", "base", "arbitrum", "optimism", "linea", "unichain", "worldchain", "ink"]);
-
-/** How long Iris normally takes to attest a burn from this chain. */
-export function expectedAttestMs(network: Network, srcDomain: number, minFinality: number): number {
-  const chain = chainByDomain(network, srcDomain);
-  if (minFinality <= FINALITY.fast && chain?.fastSource) return 30 * SECOND;
-  if (chain && L1_FINALITY.has(chain.key)) return 20 * MINUTE;
-  return 2 * MINUTE;
-}
 
 export function notFoundDelay(ageMs: number): number {
   if (ageMs < 2 * MINUTE) return 3 * SECOND;

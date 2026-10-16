@@ -1,10 +1,10 @@
-import { bech32 } from "@scure/base";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { type Address, bytesToHex, isAddress } from "viem";
-import { type Network, chainByDomain } from "injective-usdc-bridge";
+import type { Address } from "viem";
+import { type Network, chainByDomain, toEvmAddress } from "injective-usdc-bridge";
 import type { Store } from "./db.js";
 import type { Health } from "./health.js";
+import { serveSite } from "./site.js";
 import { toView } from "./view.js";
 
 export interface ApiDeps {
@@ -14,6 +14,8 @@ export interface ApiDeps {
   bridgeReceiver?: Address;
   /** Index one source tx now and check it against Iris. */
   ingest: (srcDomain: number, txHash: `0x${string}`) => Promise<void>;
+  /** The built site (apps/site/dist), served beside the API when set. */
+  siteDir?: string;
 }
 
 const TX_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -21,17 +23,7 @@ const RECENT_HINT_MS = 30_000;
 
 /** 0x or inj1 (same 20 bytes on Injective) to lowercase 0x. */
 export function normalizeAddress(input: string): string | null {
-  const s = input.trim();
-  if (isAddress(s, { strict: false })) return s.toLowerCase();
-  if (s.startsWith("inj1")) {
-    try {
-      const { prefix, bytes } = bech32.decodeToBytes(s as `${string}1${string}`);
-      if (prefix === "inj" && bytes.length === 20) return bytesToHex(bytes);
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  return toEvmAddress(input)?.toLowerCase() ?? null;
 }
 
 export function createApi(d: ApiDeps): Hono {
@@ -97,6 +89,8 @@ export function createApi(d: ApiDeps): Hono {
     const rows = await lookup(t.domain, t.tx, true);
     return c.json({ transfers: view(rows) }, rows.length ? 200 : 202);
   });
+
+  if (d.siteDir) serveSite(app, d.siteDir);
 
   app.onError((err, c) => c.json({ error: err.message.split("\n")[0] }, 500));
   return app;
