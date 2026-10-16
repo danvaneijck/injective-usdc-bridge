@@ -127,8 +127,25 @@ integrators:
 
 ## BridgeReceiver (gas drop)
 
-`contracts/src/BridgeReceiver.sol`, 8 KB, 27 Foundry tests including a
+`contracts/src/BridgeReceiver.sol`, 8 KB, 28 Foundry tests including a
 conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
+
+**Mainnet: `0xcA5A96ECF72B3656eF7cF60BDAA42FCdb218cd4A`**, deployed 2026-10-16
+(tx `0xad073691…60a1`) by `script/DeployBridgeReceiver.s.sol` and verified on
+Blockscout. Owner: the Choice Safe `0xE176FeE8…AA1d` (2-of-3, the same Safe as
+Choice v2 and the pad). It deployed configured, so the Safe signed nothing:
+
+| | |
+| --- | --- |
+| Drop | 0.02 INJ for 0.50 USDC, fixed (v1's offer; Dan 2026-10-16) |
+| `minDropFee` | 0.50 USDC, so the price cannot be lowered without the Safe |
+| Ceilings (immutable) | `maxDropWei` 0.1 INJ, `maxDropFee` 2 USDC |
+| `sweeper` | relayer `0xeEB5b86A…1566` (key only on the server) |
+| `pricer` | none |
+| `feeBps` | 0 |
+
+0.50 USDC covers 0.02 INJ until INJ passes $25; the Safe raises the fee if it
+gets close (a burn already in flight then skips its drop and is refunded).
 
 - A gas-drop deposit burns with `mintRecipient = destinationCaller =
   BridgeReceiver` and hook `abi.encode(bytes4 "IUB1", address recipient,
@@ -141,17 +158,16 @@ conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
   the amount, or the recipient refuses INJ. Delivery still happens.
 - Blacklisted recipients and malformed hooks are escrowed; the owner can
   reassign escrow only for non-EVM senders (e.g. Solana keys).
-- Pricing: a `pricer` key (the service) sets `dropFee` within
-  `[minDropFee, maxDropFee]`; `minDropFee` is the owner's anti-farming floor;
-  `maxDropWei` and `maxDropFee` are immutable ceilings. The pricer can pause
+- Pricing: fixed by the owner today. The contract also supports a `pricer`
+  key that sets `dropFee` within `[minDropFee, maxDropFee]` (Dan chose not to
+  use one: a moving price was more complexity than ~1 drop a day justifies).
+  `maxDropWei` and `maxDropFee` are immutable ceilings. A pricer can pause
   drops but only the owner unpauses.
 - Fees accrue in `accruedFees`; the `sweeper` (refill keeper) can sweep only
   those, only to itself, then swaps to INJ and refills the float.
 - `feeBps` (bridge fee) exists with an immutable 50 bps ceiling, set to 0.
-- Owner: a Safe multisig before the float is seeded (v1 mainnet v3 sat
-  unfunded for that reason).
-- Not yet deployed. v1's `GasDropReceiver` stays live until the new widget
-  ships; the service relays both.
+- v1's `GasDropReceiver` stays live until the new widget ships; the service
+  relays both.
 
 ## Paying for gas without top-ups
 
@@ -162,13 +178,17 @@ the fee to base fee + 12.5% with no tip, and sizes the limit from an estimate
 +20%. At that cost 1 INJ covers ~11,000 deposits, over a year at v1's volume.
 
 The real recurring cost is the gas drop (0.02 INJ, ~$0.18, per user), and
-users pay for it in USDC. The plan for running without manual top-ups:
+users pay 0.50 USDC for it. v1's drop ran at about one a day (its receiver
+`0xbe7a…54b4` made 167 transactions May to October 2026). Each drop nets about
++0.034 INJ once its fee is swapped back, which also pays for relaying plain
+deposits. The plan for running without manual top-ups:
 
-- `dropFee` is priced by the service's `pricer` key at the drop's INJ value
-  plus a small margin, from the Choice v2 USDC/wINJ pool price.
 - A keeper loop, with the relayer wallet as BridgeReceiver's `sweeper`, sweeps
   accrued fees when either the receiver's float or the relayer's own INJ runs
-  low, swaps USDC to INJ on Choice v2, and refills both.
+  low, swaps USDC to INJ on Choice v2, and refills both. No price feed.
+- Seed once: ~0.05 INJ to the receiver (two drops) and ~0.05 INJ to the
+  relayer (~500 mints). It is working capital, not a subsidy: INJ leaves at
+  relay, before the fee can be swapped back.
 - Swap path: the hookless CL pool wINJ/USDC (fee 500, pool id
   `0xa9c3b5cd…dfb6`, ~$6.7k TVL, ~3% impact at $100) through the
   UniversalRouter with exact, 15-minute Permit2 grants and `UNWRAP_WETH` to
@@ -252,5 +272,8 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
 
 ## Open
 
-- Deploy parameters for BridgeReceiver: `dropWei`, `minDropFee`, the two
-  ceilings, and which Safe owns it.
+- Seed the receiver and the relayer (~0.1 INJ total), then build the refill
+  keeper.
+- Before `MODE=relay`: check the relayer's gas limit (estimate +20%) against
+  real mints. Choice v2 measured `eth_estimateGas` under-reporting on
+  Injective and uses 3-5x.

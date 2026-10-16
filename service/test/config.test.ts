@@ -23,6 +23,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ NETWORK: "injective_mainnet", CHAIN_ID: "1439" })).toThrow(/CHAIN_ID/);
   });
 
+  it("defaults to the deployed BridgeReceiver, which an env var can override", () => {
+    expect(loadConfig({}).bridgeReceiver).toBe("0xcA5A96ECF72B3656eF7cF60BDAA42FCdb218cd4A");
+    expect(loadConfig({ NETWORK: "testnet" }).bridgeReceiver).toBeUndefined();
+    const other = "0x000000000000000000000000000000000000dEaD";
+    expect(loadConfig({ BRIDGE_RECEIVER: other }).bridgeReceiver).toBe(other);
+  });
+
   it("rejects a log endpoint without a span, and relay mode without a key", () => {
     expect(() => loadConfig({ LOG_RPC_19: "https://no-span.example" })).toThrow(/url@span/);
     expect(() => loadConfig({ MODE: "relay" })).toThrow(/RELAYER_KEY_FILE/);

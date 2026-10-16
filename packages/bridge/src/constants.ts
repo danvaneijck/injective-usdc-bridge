@@ -20,6 +20,15 @@ export const CCTP_CONTRACTS: Record<
   },
 };
 
+/**
+ * Injective-side BridgeReceiver for gas-drop deposits (contracts/), owned by
+ * the Choice Safe. Mainnet: deployed and Blockscout-verified 2026-10-16.
+ */
+export const BRIDGE_RECEIVER: Record<Network, Address | undefined> = {
+  mainnet: "0xcA5A96ECF72B3656eF7cF60BDAA42FCdb218cd4A",
+  testnet: undefined,
+};
+
 export const IRIS_URLS: Record<Network, string> = {
   mainnet: "https://iris-api.circle.com",
   testnet: "https://iris-api-sandbox.circle.com",

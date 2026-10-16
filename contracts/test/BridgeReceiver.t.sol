@@ -27,12 +27,13 @@ contract BridgeReceiverTest is Test {
     function setUp() public {
         usdc = new MockUSDC();
         mt = new MockMessageTransmitter(usdc);
-        r = new BridgeReceiver(address(mt), address(usdc), owner, MAX_DROP_WEI, MAX_DROP_FEE);
+        r = new BridgeReceiver(
+            address(mt), address(usdc), owner, MAX_DROP_WEI, MAX_DROP_FEE, DROP_WEI, DROP_FEE, sweeper
+        );
+        // Lower the floor and add a pricer so the pricer paths can be tested.
         vm.startPrank(owner);
         r.setDropConfig(DROP_WEI, MIN_DROP_FEE);
-        r.setDropFee(DROP_FEE);
         r.setPricer(pricer);
-        r.setSweeper(sweeper);
         vm.stopPrank();
         vm.deal(address(r), 1 ether);
     }
@@ -324,6 +325,27 @@ contract BridgeReceiverTest is Test {
         vm.expectRevert();
         r.setDropConfig(DROP_WEI, 0);
         vm.stopPrank();
+    }
+
+    function test_deploysConfiguredAtAFixedPrice() public {
+        BridgeReceiver fresh = new BridgeReceiver(
+            address(mt), address(usdc), owner, MAX_DROP_WEI, MAX_DROP_FEE, DROP_WEI, DROP_FEE, sweeper
+        );
+        assertEq(fresh.owner(), owner);
+        assertEq(fresh.dropWei(), DROP_WEI);
+        assertEq(fresh.dropFee(), DROP_FEE);
+        assertEq(fresh.minDropFee(), DROP_FEE);
+        assertEq(fresh.sweeper(), sweeper);
+        assertEq(fresh.pricer(), address(0));
+
+        vm.expectRevert(BridgeReceiver.AboveCeiling.selector);
+        new BridgeReceiver(
+            address(mt), address(usdc), owner, MAX_DROP_WEI, MAX_DROP_FEE, MAX_DROP_WEI + 1, DROP_FEE, sweeper
+        );
+        vm.expectRevert(BridgeReceiver.AboveCeiling.selector);
+        new BridgeReceiver(
+            address(mt), address(usdc), owner, MAX_DROP_WEI, MAX_DROP_FEE, DROP_WEI, MAX_DROP_FEE + 1, sweeper
+        );
     }
 
     function test_ownerCannotExceedImmutableCeilings() public {

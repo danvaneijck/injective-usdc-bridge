@@ -148,15 +148,33 @@ contract BridgeReceiver is Ownable2Step, ReentrancyGuard {
     error NothingToClaim();
     error InjTransferFailed();
 
-    constructor(address mt, address usdc_, address owner_, uint256 maxDropWei_, uint256 maxDropFee_)
-        Ownable(owner_)
-    {
+    /// @dev Deploys fully configured so the owner (a Safe) has nothing to sign
+    /// before the first drop. The starting fee is also the floor: a fixed
+    /// price until the owner sets a lower floor and a pricer.
+    constructor(
+        address mt,
+        address usdc_,
+        address owner_,
+        uint256 maxDropWei_,
+        uint256 maxDropFee_,
+        uint256 dropWei_,
+        uint256 dropFee_,
+        address sweeper_
+    ) Ownable(owner_) {
         if (mt == address(0) || usdc_ == address(0)) revert ZeroAddress();
         if (mt.code.length == 0 || usdc_.code.length == 0) revert NotAContract();
+        if (dropWei_ > maxDropWei_ || dropFee_ > maxDropFee_) revert AboveCeiling();
         messageTransmitter = IMessageTransmitterV2(mt);
         usdc = IERC20(usdc_);
         maxDropWei = maxDropWei_;
         maxDropFee = maxDropFee_;
+        dropWei = dropWei_;
+        dropFee = dropFee_;
+        minDropFee = dropFee_;
+        sweeper = sweeper_;
+        emit DropConfigSet(dropWei_, dropFee_);
+        emit DropFeeSet(dropFee_);
+        emit SweeperSet(sweeper_);
     }
 
     receive() external payable {

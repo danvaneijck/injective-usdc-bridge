@@ -1,5 +1,5 @@
 import { type Address, getAddress, isAddress } from "viem";
-import { type Network, chains } from "injective-usdc-bridge";
+import { BRIDGE_RECEIVER, type Network, chains } from "injective-usdc-bridge";
 
 export type Mode = "shadow" | "relay";
 
@@ -11,7 +11,7 @@ export interface ServiceConfig {
   port: number;
   /** File holding the relayer's hex private key. Never logged. */
   relayerKeyFile?: string;
-  /** New BridgeReceiver (gas-drop deposits), once deployed. */
+  /** BridgeReceiver (gas-drop deposits); defaults to the deployed one. */
   bridgeReceiver?: Address;
   /** v1 GasDropReceivers whose pinned burns we also complete. */
   legacyReceivers: Address[];
@@ -107,7 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     dbPath: env.DB_PATH ?? "./data/bridge.sqlite",
     port: Number(env.PORT ?? 8787),
     relayerKeyFile: env.RELAYER_KEY_FILE || undefined,
-    bridgeReceiver: addressOrUndefined(env.BRIDGE_RECEIVER, "BRIDGE_RECEIVER"),
+    bridgeReceiver: addressOrUndefined(env.BRIDGE_RECEIVER, "BRIDGE_RECEIVER") ?? BRIDGE_RECEIVER[network],
     legacyReceivers: legacy,
     chainKeys,
     startLookbackSec: Number(env.START_LOOKBACK_SEC ?? 6 * 3600),
