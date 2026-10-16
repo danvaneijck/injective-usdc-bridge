@@ -1,4 +1,4 @@
-import { type Address, getAddress, isAddress } from "viem";
+import { type Address, getAddress, isAddress, parseEther, parseUnits } from "viem";
 import { BRIDGE_RECEIVER, type Network, chains } from "injective-usdc-bridge";
 
 export type Mode = "shadow" | "relay";
@@ -23,7 +23,7 @@ export interface ServiceConfig {
   depositGraceSec: number;
   /** Wait before relaying a burn pinned to a v1 receiver (v1's backend relays those). */
   legacyGraceSec: number;
-  /** Relayer INJ balance below which /health reports low. */
+  /** Relayer INJ balance below which /health reports low; under the keeper's refill mark. */
   relayerLowInj: number;
   irisRps: number;
   /** Per-domain RPC lists placed ahead of the registry's, for reads and sends. */
@@ -35,6 +35,45 @@ export interface ServiceConfig {
    * an error, which would silently drop burns during a backfill.
    */
   logRpcOverrides: Record<number, { url: string; span: number }[]>;
+  keeper: KeeperSettings;
+}
+
+/** The refill keeper (relay mode on mainnet): see keeper.ts. */
+export interface KeeperSettings {
+  enabled: boolean;
+  floatLowWei: bigint;
+  floatTargetWei: bigint;
+  relayerLowWei: bigint;
+  relayerTargetWei: bigint;
+  minSwapUsdc: bigint;
+  maxSwapUsdc: bigint;
+  slippageBps: number;
+  /** Choice v2's api, whose /route builds the aggregator swap. */
+  routeApi: string;
+}
+
+function keeperSettings(env: NodeJS.ProcessEnv): KeeperSettings {
+  const inj = (name: string, def: string) => parseEther(env[name] ?? def);
+  const usdc = (name: string, def: string) => parseUnits(env[name] ?? def, 6);
+  const k: KeeperSettings = {
+    enabled: (env.KEEPER ?? "on") !== "off",
+    // A drop is 0.02 INJ: refill under two drops, back up to three.
+    floatLowWei: inj("KEEPER_FLOAT_LOW_INJ", "0.04"),
+    floatTargetWei: inj("KEEPER_FLOAT_TARGET_INJ", "0.06"),
+    // A mint is ~0.0001 INJ: 0.03 is ~300 of them.
+    relayerLowWei: inj("KEEPER_RELAYER_LOW_INJ", "0.03"),
+    relayerTargetWei: inj("KEEPER_RELAYER_TARGET_INJ", "0.05"),
+    // One drop's fee; Helix legs need $1, so smaller swaps route through pools.
+    minSwapUsdc: usdc("KEEPER_MIN_SWAP_USDC", "0.5"),
+    maxSwapUsdc: usdc("KEEPER_MAX_SWAP_USDC", "5"),
+    slippageBps: Number(env.KEEPER_SLIPPAGE_BPS ?? 100),
+    routeApi: env.CHOICE_ROUTE_API ?? "https://evm-api.choice.exchange",
+  };
+  if (k.floatLowWei > k.floatTargetWei || k.relayerLowWei > k.relayerTargetWei) {
+    throw new Error("KEEPER_*_LOW_INJ must not exceed its KEEPER_*_TARGET_INJ");
+  }
+  if (k.minSwapUsdc > k.maxSwapUsdc) throw new Error("KEEPER_MIN_SWAP_USDC exceeds KEEPER_MAX_SWAP_USDC");
+  return k;
 }
 
 /** Mainnet v1 GasDropReceiver v4 (live) and v3 (older burns may be pinned to it). */
@@ -113,10 +152,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     startLookbackSec: Number(env.START_LOOKBACK_SEC ?? 6 * 3600),
     depositGraceSec: Number(env.DEPOSIT_GRACE_SEC ?? 15),
     legacyGraceSec: Number(env.LEGACY_GRACE_SEC ?? 120),
-    relayerLowInj: Number(env.RELAYER_LOW_INJ ?? 0.2),
+    relayerLowInj: Number(env.RELAYER_LOW_INJ ?? 0.02),
     irisRps: Number(env.IRIS_RPS ?? 5),
     rpcOverrides,
     logRpcOverrides,
+    keeper: keeperSettings(env),
   };
   if (config.mode === "relay" && !config.relayerKeyFile) {
     throw new Error("MODE=relay needs RELAYER_KEY_FILE");

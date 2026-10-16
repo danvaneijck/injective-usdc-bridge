@@ -30,6 +30,14 @@ describe("loadConfig", () => {
     expect(loadConfig({ BRIDGE_RECEIVER: other }).bridgeReceiver).toBe(other);
   });
 
+  it("keeper defaults sit the health alarm under the refill mark, and refuse a low above its target", () => {
+    const c = loadConfig({});
+    expect(c.keeper).toMatchObject({ enabled: true, floatLowWei: 40_000_000_000_000_000n, relayerLowWei: 30_000_000_000_000_000n });
+    expect(c.relayerLowInj).toBeLessThan(0.03);
+    expect(loadConfig({ KEEPER: "off" }).keeper.enabled).toBe(false);
+    expect(() => loadConfig({ KEEPER_FLOAT_LOW_INJ: "0.1" })).toThrow(/must not exceed/);
+  });
+
   it("rejects a log endpoint without a span, and relay mode without a key", () => {
     expect(() => loadConfig({ LOG_RPC_19: "https://no-span.example" })).toThrow(/url@span/);
     expect(() => loadConfig({ MODE: "relay" })).toThrow(/RELAYER_KEY_FILE/);

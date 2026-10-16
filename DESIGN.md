@@ -174,26 +174,44 @@ gets close (a burn already in flight then skips its drop and is refunded).
 Measured 2026-10-16 on Injective: a deposit mint uses ~560k gas at the 0.16
 gwei base fee, about 0.00009 INJ (~$0.0008 at $9.22). ⚠️ Injective bills
 `gasLimit × maxFeePerGas` up front and refunds nothing, so the relayer pins
-the fee to base fee + 12.5% with no tip, and sizes the limit from an estimate
-+20%. At that cost 1 INJ covers ~11,000 deposits, over a year at v1's volume.
+the fee to base fee + 12.5% with no tip. The limit is the estimate +50%, at
+least 800k: Choice v2 measured `eth_estimateGas` under-reporting on Injective,
+and other relayers send these mints at 768k for 562k used. At that cost 1 INJ
+still covers ~6,000 deposits.
 
 The real recurring cost is the gas drop (0.02 INJ, ~$0.18, per user), and
 users pay 0.50 USDC for it. v1's drop ran at about one a day (its receiver
 `0xbe7a…54b4` made 167 transactions May to October 2026). Each drop nets about
 +0.034 INJ once its fee is swapped back, which also pays for relaying plain
-deposits. The plan for running without manual top-ups:
+deposits.
 
-- A keeper loop, with the relayer wallet as BridgeReceiver's `sweeper`, sweeps
-  accrued fees when either the receiver's float or the relayer's own INJ runs
-  low, swaps USDC to INJ on Choice v2, and refills both. No price feed.
-- Seed once: ~0.05 INJ to the receiver (two drops) and ~0.05 INJ to the
-  relayer (~500 mints). It is working capital, not a subsidy: INJ leaves at
-  relay, before the fee can be swapped back.
-- Swap path: the hookless CL pool wINJ/USDC (fee 500, pool id
-  `0xa9c3b5cd…dfb6`, ~$6.7k TVL, ~3% impact at $100) through the
-  UniversalRouter with exact, 15-minute Permit2 grants and `UNWRAP_WETH` to
-  native INJ; built locally (trippy-mcp's `buildSwapPlan` / `assertSafePlan`),
-  never from the aggregator API's calldata.
+**The keeper** (`service/src/keeper.ts`, relay mode on mainnet, every 3 min)
+signs with the relayer key, which is BridgeReceiver's `sweeper`:
+
+- It acts when the float drops under 0.04 INJ (two drops; target 0.06) or the
+  relayer under 0.03 INJ (target 0.05). The relayer is refilled first: it
+  delivers everyone's deposits, while an empty float only skips and refunds
+  drops. Surplus relayer INJ funds the float without a swap.
+- It prices what is missing with the chain's oracle precompile (`0x…67`,
+  PythPro feed 46 INJ/USD, the feed Choice v2's api ratified; refused when over
+  5 minutes old), sweeps just enough fees to itself, and swaps at least 0.5 and
+  at most 5 USDC a tick to native INJ.
+- Swap path: Choice's aggregator (`0xa705…37c9`, 1.1.0) on a route from
+  Choice v2's `/route` api, so refills follow liquidity across Choice, Pumex
+  and Helix. Dan asked for this over a pinned pool (2026-10-16). The api's
+  calldata is decoded and refused unless it is `execute` on the pinned
+  aggregator, USDC in, native INJ out, the exact amount, the relayer as
+  recipient, no fee, no adapter step, a deadline within the hour, and a
+  `minimumReceive` at least 97% of the oracle value. The aggregator enforces
+  that minimum on what the recipient receives, so a hostile api answer can
+  cost at most that 3% of one swap. Permit2 grants are exact and last 15
+  minutes. Gas is twice the estimate, at least 1.5M for the swap.
+- Problems (stale oracle, fees under the minimum swap, a refused route) show
+  in `/v1/health` under `keeper` and are logged at most hourly.
+  `npm run keeper-dryrun` does a whole pass read-only against mainnet.
+- Seed once: ~0.05 INJ to the receiver and ~0.05 INJ to the relayer. It is
+  working capital, not a subsidy: INJ leaves at relay, before the fee can be
+  swapped back.
 
 No new fee on plain deposits: the margin on opt-in drops funds the relays.
 If drops turn out rare, `feeBps` (capped at 50) or a flat relay fee in
@@ -272,8 +290,4 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
 
 ## Open
 
-- Seed the receiver and the relayer (~0.1 INJ total), then build the refill
-  keeper.
-- Before `MODE=relay`: check the relayer's gas limit (estimate +20%) against
-  real mints. Choice v2 measured `eth_estimateGas` under-reporting on
-  Injective and uses 3-5x.
+- Seed the receiver and the relayer (~0.1 INJ total), then `MODE=relay`.

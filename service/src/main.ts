@@ -17,6 +17,7 @@ import { loadConfig } from "./config.js";
 import { Store } from "./db.js";
 import { Health } from "./health.js";
 import { ChainIndexer, ingestTx } from "./indexer.js";
+import { CHOICE_MAINNET, Keeper, routeApi } from "./keeper.js";
 import { createLogger } from "./log.js";
 import { Relayer } from "./relayer.js";
 import { RateLimiter } from "./timing.js";
@@ -92,6 +93,36 @@ const relayer = new Relayer({
   now,
 });
 
+// The refill keeper signs with the relayer's key, so it runs only where the
+// relayer sends, and only on mainnet, where Choice's aggregator is.
+const k = config.keeper;
+const keeper =
+  config.mode === "relay" && wallet && config.bridgeReceiver && config.network === "mainnet" && k.enabled
+    ? new Keeper({
+        cfg: {
+          receiver: config.bridgeReceiver,
+          usdc: inj.usdc,
+          floatLowWei: k.floatLowWei,
+          floatTargetWei: k.floatTargetWei,
+          relayerLowWei: k.relayerLowWei,
+          relayerTargetWei: k.relayerTargetWei,
+          minSwapUsdc: k.minSwapUsdc,
+          maxSwapUsdc: k.maxSwapUsdc,
+          slippageBps: k.slippageBps,
+          oracleFloorBps: 300,
+          oracleMaxAgeSec: 300,
+        },
+        injective: inj,
+        client: injClient,
+        wallet,
+        aggregator: CHOICE_MAINNET.aggregator,
+        permit2: CHOICE_MAINNET.permit2,
+        fetchRoute: routeApi(k.routeApi),
+        log,
+        now,
+      })
+    : undefined;
+
 const health = new Health({
   store,
   network: config.network,
@@ -99,6 +130,7 @@ const health = new Health({
   chainKeys: config.chainKeys,
   now,
   relayer: wallet ? { address: wallet.account.address, client: injClient, lowInj: config.relayerLowInj } : undefined,
+  keeper: keeper ? () => keeper.status() : undefined,
 });
 
 const api = createApi({
@@ -137,6 +169,7 @@ log.info("starting", {
   mode: config.mode,
   chains: config.chainKeys,
   relayer: wallet?.account.address ?? null,
+  keeper: keeper !== undefined,
   bridgeReceiver: config.bridgeReceiver ?? null,
   legacyReceivers: config.legacyReceivers,
 });
@@ -157,6 +190,7 @@ const loops = [
   loop("track", async () => (await tracker.tick()) > 0, 1_000),
   loop("relay", async () => (await relayer.tick()) > 0, 3_000),
   loop("health", async () => (await health.refreshRelayerBalance(), false), 60_000),
+  ...(keeper ? [loop("keeper", async () => (await keeper.tick(), false), 3 * 60_000)] : []),
 ];
 
 const server = serve({ fetch: api.fetch, port: config.port }, (info) => log.info("api listening", { port: info.port }));

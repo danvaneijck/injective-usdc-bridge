@@ -17,7 +17,11 @@ Design and the reasons behind each rule: [`../DESIGN.md`](../DESIGN.md#bridge-se
   Logs `shadow: would relay` for each deposit it would have minted.
 - `relay`: also mints attested deposits into Injective with
   `RELAYER_KEY_FILE`. Keep the relayer wallet small; watch `relayer.low` in
-  `/v1/health`.
+  `/v1/health`. On mainnet the refill keeper runs too: it swaps gas-drop fees
+  to INJ through Choice's aggregator and tops up BridgeReceiver's float and
+  the relayer, so neither needs topping up by hand (`KEEPER=off` to stop it;
+  `keeper` in `/v1/health` says what it last saw). `npm run keeper-dryrun`
+  runs one pass read-only against mainnet.
 
 ## API
 

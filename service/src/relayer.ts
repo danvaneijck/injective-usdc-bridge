@@ -15,6 +15,12 @@ import { relayRetryDelay } from "./timing.js";
 
 const RELAYABLE: Kind[] = ["plain", "gas_drop", "legacy_gas_drop"];
 const MAX_ATTEMPTS = 8;
+/**
+ * eth_estimateGas under-reports on Injective (Choice v2 measured it), and other
+ * relayers send deposit mints at a 768k limit for 562k used. Injective bills
+ * the whole limit, but 800k at the base fee is still ~0.00015 INJ.
+ */
+const RELAY_GAS_FLOOR = 800_000n;
 const SHADOW_NOTE = "shadow: would relay";
 
 export interface RelayerDeps {
@@ -133,7 +139,7 @@ export class Relayer {
         chain: null,
         to: call.to,
         data: call.data,
-        gas: (gas * 12n) / 10n,
+        gas: (gas * 3n) / 2n > RELAY_GAS_FLOOR ? (gas * 3n) / 2n : RELAY_GAS_FLOOR,
         ...fees,
       });
       this.d.log.info("relay sent", { ...ctx, hash });

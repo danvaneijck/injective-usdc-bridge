@@ -18,6 +18,8 @@ export const bridgeReceiverAbi = parseAbi([
   "function feeBps() view returns (uint256)",
   "function claim(address to)",
   "function escrow(bytes32 account) view returns (uint256)",
+  "function accruedFees() view returns (uint256)",
+  "function sweepFees(uint256 amount, address to)",
   "event Relayed(bytes32 indexed nonce, address indexed recipient, uint256 minted, uint256 usdcPaid, uint256 dropFeeCharged, uint256 injDropped, uint256 bridgeFeeCharged)",
   "event DropSkipped(bytes32 indexed nonce, address indexed recipient, uint8 reason)",
 ]);

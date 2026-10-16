@@ -2,6 +2,7 @@ import { formatEther, type Address, type PublicClient } from "viem";
 import { type Network, chainByKey } from "injective-usdc-bridge";
 import type { Mode } from "./config.js";
 import type { Store } from "./db.js";
+import type { KeeperStatus } from "./keeper.js";
 import { expectedAttestMs } from "./timing.js";
 
 const INDEXER_STALE_MS = 5 * 60_000;
@@ -13,6 +14,7 @@ export interface HealthDeps {
   chainKeys: string[];
   now: () => number;
   relayer?: { address: Address; client: PublicClient; lowInj: number };
+  keeper?: () => KeeperStatus;
 }
 
 export interface LaneHealth {
@@ -94,6 +96,7 @@ export class Health {
       network: this.d.network,
       mode: this.d.mode,
       relayer,
+      keeper: this.d.keeper?.() ?? null,
       lanes,
       counts: this.d.store.phaseCounts(),
     };
