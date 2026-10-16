@@ -25,7 +25,12 @@ export interface TrackerDeps {
   isNonceUsed: (domain: number, nonce: Hex) => Promise<boolean>;
   destinationBlock: (domain: number) => Promise<bigint>;
   /** Block time (ms) of a destination tx, so backfilled deliveries get their real time. */
-  txTime?: (domain: number, txHash: Hex) => Promise<number | null>;
+  txTime?: (domain: number, txHash: string) => Promise<number | null>;
+  /**
+   * The wallet that owns a Solana token account. A burn to Solana names the
+   * account, so this is how a withdrawal learns who it is for.
+   */
+  solanaOwner?: (tokenAccount: Hex) => Promise<string | null>;
   log: Logger;
   now: () => number;
   batch?: number;
@@ -61,6 +66,7 @@ export class Tracker {
   async checkTx(srcDomain: number, txHash: string): Promise<void> {
     const rows = this.d.store.byTx(srcDomain, txHash).filter((r) => OPEN.includes(r.phase));
     if (rows.length === 0) return;
+    await this.fillSolanaRecipients(rows);
 
     await this.d.irisLimiter.take();
     const messages = await this.d.iris.getMessages(srcDomain, txHash as Hex);
@@ -104,7 +110,9 @@ export class Tracker {
   }
 
   private async onAttested(row: TransferRow, a: Attested, now: number): Promise<void> {
-    const forwardTx = typeof a.m.forwardTxHash === "string" ? a.m.forwardTxHash.toLowerCase() : null;
+    // Circle's forward tx is hex on EVM chains and a base58 signature on Solana.
+    const rawForward = typeof a.m.forwardTxHash === "string" ? (a.m.forwardTxHash as string) : null;
+    const forwardTx = rawForward ? (rawForward.startsWith("0x") ? rawForward.toLowerCase() : rawForward) : null;
     const attestedAt = row.attested_at ?? now;
     const base: Partial<TransferRow> = {
       event_nonce: a.m.eventNonce.toLowerCase(),
@@ -131,7 +139,7 @@ export class Tracker {
       const mintTx = row.mint_tx ?? forwardTx;
       let deliveredAt = row.delivered_at;
       if (deliveredAt === null && mintTx && this.d.txTime) {
-        deliveredAt = await this.d.txTime(row.dst_domain, mintTx as Hex).catch(() => null);
+        deliveredAt = await this.d.txTime(row.dst_domain, mintTx).catch(() => null);
       }
       this.d.store.update(
         row,
@@ -161,6 +169,18 @@ export class Tracker {
     }
 
     this.d.store.update(row, { ...base, phase: "ready", next_check_at: now + readyDelay(now - attestedAt) }, now);
+  }
+
+  private async fillSolanaRecipients(rows: TransferRow[]): Promise<void> {
+    if (!this.d.solanaOwner) return;
+    for (const row of rows) {
+      if (row.recipient !== null || chainByDomain(this.d.network, row.dst_domain)?.kind !== "solana") continue;
+      const owner = await this.d.solanaOwner(row.mint_recipient as Hex).catch(() => null);
+      if (owner) {
+        row.recipient = owner;
+        this.d.store.update(row, { recipient: owner }, this.d.now());
+      }
+    }
   }
 
   private async maybeReattest(nonce: Hex, now: number): Promise<void> {

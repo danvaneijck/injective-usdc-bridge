@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Address, PublicClient } from "viem";
 import { erc20Abi } from "../abis.js";
-import { type EvmChain, injective, peers } from "../chains.js";
+import { type Chain, type EvmChain, injective, peers } from "../chains.js";
 import { BRIDGE_RECEIVER, type Network, type Speed } from "../constants.js";
 import { type GasDropConfig, readGasDropConfig } from "../gasDrop.js";
 import { IrisClient } from "../iris.js";
 import { type Quote, RouteError, quoteTransfer } from "../quote.js";
 import { publicClientFor } from "../rpc.js";
+import { type SolanaRecipientCheck, checkSolanaRecipient, isSolanaAddress, solanaBalance, solanaTokenBalance } from "../solana.js";
 import { BridgeApi, type LaneHealth, type TransferView } from "./api.js";
 import { Journal, type JournalEntry } from "./journal.js";
 import { DEFAULT_API_URL } from "./types.js";
@@ -17,11 +18,13 @@ export interface Env {
   iris: IrisClient;
   journal: Journal;
   inj: EvmChain;
-  /** EVM peers. Solana legs are not in the widget yet. */
-  peerChains: EvmChain[];
+  /** Every chain that bridges with Injective: the EVM chains and Solana. */
+  peerChains: Chain[];
   receiver: Address | undefined;
   clientFor(chain: EvmChain): PublicClient;
   chainById(chainId: number): EvmChain | undefined;
+  /** Solana RPCs, the host's ahead of the registry's. */
+  solanaRpc: string[];
 }
 
 export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partial<Record<string, string[]>> }): Env {
@@ -30,8 +33,9 @@ export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partia
     const network = p.network ?? "mainnet";
     const clients = new Map<string, PublicClient>();
     const inj = injective(network);
-    const peerChains = peers(network).filter((c): c is EvmChain => c.kind === "evm");
-    const all = [inj, ...peerChains];
+    const peerChains = [...peers(network)];
+    const evm = [inj, ...peerChains.filter((c): c is EvmChain => c.kind === "evm")];
+    const sol = peerChains.find((c) => c.kind === "solana");
     return {
       network,
       api: new BridgeApi(p.apiUrl ?? DEFAULT_API_URL),
@@ -48,7 +52,8 @@ export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partia
         }
         return c;
       },
-      chainById: (id) => all.find((c) => c.chainId === id),
+      chainById: (id) => evm.find((c) => c.chainId === id),
+      solanaRpc: [...(p.rpcUrls?.solana ?? []), ...(sol?.rpcUrls ?? [])],
     };
     // rpcKey stands in for p.rpcUrls, whose identity changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,11 +98,32 @@ export function usePoll<T>(key: string | null, load: () => Promise<T>, ms: numbe
   return { data: current ? state.data : null, error: current ? state.error : null, refresh: () => setTick((n) => n + 1) };
 }
 
-export function useUsdcBalance(env: Env, chain: EvmChain, owner: Address | null): bigint | null {
+/** USDC held by `owner` (0x on EVM chains, base58 on Solana). */
+export function useUsdcBalance(env: Env, chain: Chain, owner: string | null): bigint | null {
   return usePoll(
     owner ? `usdc:${chain.key}:${owner}` : null,
-    () => env.clientFor(chain).readContract({ address: chain.usdc, abi: erc20Abi, functionName: "balanceOf", args: [owner!] }),
+    () =>
+      chain.kind === "solana"
+        ? solanaTokenBalance(env.solanaRpc, owner!, chain.usdcMint)
+        : env.clientFor(chain).readContract({ address: chain.usdc, abi: erc20Abi, functionName: "balanceOf", args: [owner as Address] }),
     20_000,
+  ).data;
+}
+
+export function useSolBalance(env: Env, owner: string | null): bigint | null {
+  return usePoll(owner ? `sol:${owner}` : null, () => solanaBalance(env.solanaRpc, owner!), 30_000).data;
+}
+
+/**
+ * Whether a Solana recipient is a wallet, and whether it already has a USDC
+ * account (if not, Circle is asked to create one and the fee covers it).
+ */
+export function useSolanaRecipient(env: Env, chain: Chain, owner: string | null): SolanaRecipientCheck | null {
+  const valid = chain.kind === "solana" && owner !== null && isSolanaAddress(owner);
+  return usePoll(
+    valid ? `solrcpt:${owner}` : null,
+    () => checkSolanaRecipient(env.solanaRpc, owner!, (chain as { usdcMint: string }).usdcMint),
+    60_000,
   ).data;
 }
 
@@ -122,12 +148,15 @@ export interface QuoteState {
 /** Fees for the form as it stands, re-asked 350 ms after the last change. */
 export function useQuote(
   env: Env,
-  q: { source: EvmChain; destination: EvmChain; amount: bigint | null; speed: Speed; gasDropFee: bigint },
+  q: { source: Chain; destination: Chain; amount: bigint | null; speed: Speed; gasDropFee: bigint; recipientSetup?: boolean; ready?: boolean },
 ): QuoteState {
   // Each answer is kept with the inputs it was made for, so a quote for the
   // previous route, speed or amount is never shown (or signed) as this one's.
   const [state, setState] = useState<{ key: string | null; quote: Quote | null; error: string | null }>({ key: null, quote: null, error: null });
-  const key = q.amount && q.amount > 0n ? `${q.source.key}>${q.destination.key}:${q.amount}:${q.speed}:${q.gasDropFee}` : null;
+  const key =
+    q.amount && q.amount > 0n && q.ready !== false
+      ? `${q.source.key}>${q.destination.key}:${q.amount}:${q.speed}:${q.gasDropFee}:${q.recipientSetup ? "setup" : ""}`
+      : null;
   useEffect(() => {
     if (!key) return;
     let alive = true;
@@ -138,6 +167,7 @@ export function useQuote(
         amount: q.amount!,
         speed: q.speed,
         gasDropFee: q.gasDropFee,
+        recipientSetup: q.recipientSetup === true,
       }).then(
         (quote) => alive && setState({ key, quote, error: null }),
         (e: unknown) =>
@@ -168,17 +198,27 @@ export interface ActivityItem {
 }
 
 /**
- * The wallet's transfers: the service's list, plus anything this browser
- * signed that the service has not returned yet (looked up one by one, which
- * also makes the service index it).
+ * The wallets' transfers (EVM and Solana): the service's lists, plus anything
+ * this browser signed that the service has not returned yet (looked up one
+ * by one, which also makes the service index it).
  */
-export function useActivity(env: Env, address: Address | null): { items: ActivityItem[]; loading: boolean; error: string | null } {
+export function useActivity(env: Env, addresses: string[]): { items: ActivityItem[]; loading: boolean; error: string | null } {
+  const key = addresses.length ? `activity:${addresses.join(",")}` : null;
   const { data, error } = usePoll(
-    address ? `activity:${address}` : null,
+    key,
     async () => {
-      const listed = await env.api.transfers(address!);
+      // One wallet's lookup failing (say an older service that does not know
+      // Solana addresses) must not hide the other's transfers.
+      const settled = await Promise.allSettled(addresses.map((a) => env.api.transfers(a)));
+      const lists = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+      if (lists.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+      const byId = new Map(lists.flat().map((v) => [v.id, v]));
+      const listed = [...byId.values()];
       const seen = new Set(listed.map((v) => `${v.source.domain}:${v.source.txHash.toLowerCase()}`));
-      const missing = env.journal.forAddress(address!).filter((e) => !seen.has(`${e.domain}:${e.txHash.toLowerCase()}`));
+      const missing = addresses
+        .flatMap((a) => env.journal.forAddress(a))
+        .filter((e, i, all) => all.findIndex((x) => x.domain === e.domain && x.txHash === e.txHash) === i)
+        .filter((e) => !seen.has(`${e.domain}:${e.txHash.toLowerCase()}`));
       const found = await Promise.all(missing.map((e) => env.api.transfer(e.domain, e.txHash).catch(() => [] as TransferView[])));
       const items: ActivityItem[] = listed.map((v) => ({ key: v.id, view: v, pending: null }));
       missing.forEach((e, i) => {
@@ -191,5 +231,5 @@ export function useActivity(env: Env, address: Address | null): { items: Activit
     },
     15_000,
   );
-  return { items: data ?? [], loading: address !== null && data === null && error === null, error };
+  return { items: data ?? [], loading: key !== null && data === null && error === null, error };
 }

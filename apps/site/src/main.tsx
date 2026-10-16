@@ -6,29 +6,40 @@ import { createRoot } from "react-dom/client";
 import { injective, peers } from "injective-usdc-bridge";
 import { Bridge, ChainLogo, TransferStatus } from "injective-usdc-bridge/react";
 import { Link, NavProvider, txRoute, usePath } from "./router";
+import { useSolanaWallet } from "./solanaWallets";
 import { StatusPage } from "./Status";
-import { WalletButton, WalletPicker } from "./WalletUi";
+import { type WalletKind, WalletButtons, WalletPicker } from "./WalletUi";
 import { useWallet } from "./wallets";
 
 /** The built site is served by the bridge service, so the API is this origin. */
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 /** Every chain the bridge reaches, Injective first. */
-const CHAINS = [injective("mainnet"), ...peers("mainnet").filter((c) => c.kind === "evm")];
+const CHAINS = [injective("mainnet"), ...peers("mainnet")];
 
 const TITLES = { bridge: "USDC Bridge | Choice", status: "Status | Choice Bridge", track: "Transfer | Choice Bridge" } as const;
 
 function App() {
   const wallet = useWallet();
+  const solana = useSolanaWallet();
   const [path, go] = usePath();
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<WalletKind | null>(null);
+  const [kind, setKind] = useState<WalletKind>("evm");
+  const openPicker = (k: WalletKind) => {
+    setKind(k);
+    setPicking(k);
+  };
   const track = txRoute(path);
   const page = track ? "track" : path.replace(/\/$/, "") === "/status" ? "status" : "bridge";
   const bridgeWallet = { address: wallet.address, provider: wallet.active?.provider ?? null };
 
+  // Close the picker once the wallet it was opened for connects.
   useEffect(() => {
-    if (wallet.address) setPicking(false);
+    if (wallet.address) setPicking((p) => (p === "evm" ? null : p));
   }, [wallet.address]);
+  useEffect(() => {
+    if (solana.address) setPicking((p) => (p === "solana" ? null : p));
+  }, [solana.address]);
   useEffect(() => {
     document.title = TITLES[page];
   }, [page]);
@@ -52,7 +63,7 @@ function App() {
               Status
             </Link>
           </nav>
-          <WalletButton wallet={wallet} onOpen={() => setPicking(true)} />
+          <WalletButtons evm={wallet} solana={solana} onOpen={openPicker} />
         </header>
 
         <main className="site-main" key={page}>
@@ -70,7 +81,7 @@ function App() {
                 <h1>Transfer status</h1>
                 <p>Live from the chains. Bookmark this page to check on it later.</p>
               </div>
-              <TransferStatus apiUrl={API_URL} domain={track.domain} txHash={track.txHash} wallet={bridgeWallet} onConnectWallet={() => setPicking(true)} />
+              <TransferStatus apiUrl={API_URL} domain={track.domain} txHash={track.txHash} wallet={bridgeWallet} onConnectWallet={() => openPicker("evm")} />
               <Link to="/" className="site-new">
                 Start a new transfer
               </Link>
@@ -90,7 +101,13 @@ function App() {
                   ))}
                 </ul>
               </div>
-              <Bridge apiUrl={API_URL} wallet={bridgeWallet} onConnectWallet={() => setPicking(true)} />
+              <Bridge
+                apiUrl={API_URL}
+                wallet={bridgeWallet}
+                onConnectWallet={() => openPicker("evm")}
+                solanaWallet={solana.bridgeWallet}
+                onConnectSolanaWallet={() => openPicker("solana")}
+              />
             </>
           )}
         </main>
@@ -106,7 +123,17 @@ function App() {
           </a>
         </footer>
 
-        <WalletPicker open={picking} wallet={wallet} onClose={() => setPicking(false)} />
+        <WalletPicker
+          open={picking !== null}
+          kind={kind}
+          onKind={(k) => {
+            setKind(k);
+            setPicking(k);
+          }}
+          evm={wallet}
+          solana={solana}
+          onClose={() => setPicking(null)}
+        />
       </div>
     </NavProvider>
   );

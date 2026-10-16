@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Address } from "viem";
-import { type Network, chainByDomain, toEvmAddress } from "injective-usdc-bridge";
+import { base58 } from "@scure/base";
+import { type Network, chainByDomain, isSolanaAddress, toEvmAddress } from "injective-usdc-bridge";
 import type { Store } from "./db.js";
 import type { Health } from "./health.js";
 import { serveSite } from "./site.js";
@@ -13,7 +14,7 @@ export interface ApiDeps {
   health: Health;
   bridgeReceiver?: Address;
   /** Index one source tx now and check it against Iris. */
-  ingest: (srcDomain: number, txHash: `0x${string}`) => Promise<void>;
+  ingest: (srcDomain: number, txHash: string) => Promise<void>;
   /** The built site (apps/site/dist), served beside the API when set. */
   siteDir?: string;
 }
@@ -21,9 +22,23 @@ export interface ApiDeps {
 const TX_RE = /^0x[0-9a-fA-F]{64}$/;
 const RECENT_HINT_MS = 30_000;
 
-/** 0x or inj1 (same 20 bytes on Injective) to lowercase 0x. */
+/**
+ * 0x or inj1 (same 20 bytes on Injective) to lowercase 0x; a Solana wallet
+ * stays base58 exactly as given (it is case-sensitive).
+ */
 export function normalizeAddress(input: string): string | null {
-  return toEvmAddress(input)?.toLowerCase() ?? null;
+  const evm = toEvmAddress(input)?.toLowerCase();
+  if (evm) return evm;
+  const s = input.trim();
+  return isSolanaAddress(s) ? s : null;
+}
+
+function isSolanaSignature(tx: string): boolean {
+  try {
+    return base58.decode(tx).length === 64;
+  } catch {
+    return false;
+  }
 }
 
 export function createApi(d: ApiDeps): Hono {
@@ -40,7 +55,7 @@ export function createApi(d: ApiDeps): Hono {
 
   app.get("/v1/transfers", (c) => {
     const address = normalizeAddress(c.req.query("address") ?? "");
-    if (!address) return c.json({ error: "address must be a 0x or inj1 address" }, 400);
+    if (!address) return c.json({ error: "address must be a 0x, inj1 or Solana address" }, 400);
     const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 50) || 50, 1), 200);
     const before = c.req.query("before") ? Number(c.req.query("before")) : undefined;
     const rows = d.store.byAddress(address, limit, before);
@@ -51,9 +66,9 @@ export function createApi(d: ApiDeps): Hono {
     });
   });
 
-  const lookup = async (domain: number, tx: `0x${string}`, force: boolean) => {
+  const lookup = async (domain: number, tx: string, force: boolean) => {
     let rows = d.store.byTx(domain, tx);
-    const key = `${domain}:${tx.toLowerCase()}`;
+    const key = `${domain}:${tx}`;
     const recently = (recentHints.get(key) ?? 0) > Date.now() - RECENT_HINT_MS;
     if ((rows.length === 0 || force) && !recently) {
       recentHints.set(key, Date.now());
@@ -68,9 +83,12 @@ export function createApi(d: ApiDeps): Hono {
     const tx = String(txRaw ?? "");
     const chain = chainByDomain(d.network, domain);
     if (!chain) return { error: `unknown source domain ${domainRaw}` } as const;
-    if (chain.kind !== "evm") return { error: `${chain.name} sources are not supported yet` } as const;
+    if (chain.kind === "solana") {
+      if (!isSolanaSignature(tx)) return { error: "txHash must be a base58 Solana signature" } as const;
+      return { domain, tx } as const;
+    }
     if (!TX_RE.test(tx)) return { error: "txHash must be a 32-byte hex hash" } as const;
-    return { domain, tx: tx.toLowerCase() as `0x${string}` } as const;
+    return { domain, tx: tx.toLowerCase() } as const;
   };
 
   app.get("/v1/transfers/:domain/:tx", async (c) => {

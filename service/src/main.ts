@@ -4,13 +4,18 @@ import { type Hex, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   IrisClient,
+  bytes32ToSolana,
   chainByDomain,
   chainByKey,
   createChainReader,
   injective,
+  parseTokenAccount,
   publicClientFor,
+  solanaAccount,
+  solanaRpc,
   toViemChain,
   type EvmChain,
+  type SolanaChain,
 } from "injective-usdc-bridge";
 import { createApi } from "./api.js";
 import { loadConfig } from "./config.js";
@@ -20,6 +25,7 @@ import { ChainIndexer, ingestTx } from "./indexer.js";
 import { CHOICE_MAINNET, Keeper, routeApi } from "./keeper.js";
 import { createLogger } from "./log.js";
 import { Relayer } from "./relayer.js";
+import { SolanaIndexer } from "./solanaIndexer.js";
 import { RateLimiter } from "./timing.js";
 import { Tracker } from "./tracker.js";
 
@@ -45,7 +51,8 @@ if (config.relayerKeyFile) {
   });
 }
 
-const indexers = config.chainKeys.map((key) => {
+const evmKeys = config.chainKeys.filter((key) => chainByKey(config.network, key)?.kind === "evm");
+const indexers = evmKeys.map((key) => {
   const chain = chainByKey(config.network, key) as EvmChain;
   return new ChainIndexer({
     chain,
@@ -60,6 +67,21 @@ const indexers = config.chainKeys.map((key) => {
   });
 });
 
+const solanaChain = config.chainKeys.includes("solana") ? (chainByKey(config.network, "solana") as SolanaChain) : undefined;
+const solanaRpcUrls = solanaChain ? [...(config.rpcOverrides[solanaChain.domain] ?? []), ...solanaChain.rpcUrls] : [];
+const solanaIndexer = solanaChain
+  ? new SolanaIndexer({
+      chain: solanaChain,
+      store,
+      ctx,
+      log,
+      now,
+      startLookbackSec: config.startLookbackSec,
+      rpcUrls: solanaRpcUrls,
+      iris,
+    })
+  : undefined;
+
 const tracker = new Tracker({
   store,
   iris,
@@ -68,11 +90,24 @@ const tracker = new Tracker({
   isNonceUsed: reader.isNonceUsed,
   destinationBlock: reader.destinationBlock,
   txTime: async (domain, hash) => {
-    if (chainByDomain(config.network, domain)?.kind !== "evm") return null;
+    const chain = chainByDomain(config.network, domain);
+    if (chain?.kind === "solana") {
+      const tx = await solanaRpc<{ blockTime: number | null } | null>(solanaRpcUrls, "getTransaction", [
+        hash,
+        { encoding: "json", maxSupportedTransactionVersion: 1 },
+      ]);
+      return tx?.blockTime ? tx.blockTime * 1000 : null;
+    }
+    if (chain?.kind !== "evm") return null;
     const client = reader.clientFor(domain);
-    const receipt = await client.getTransactionReceipt({ hash });
+    const receipt = await client.getTransactionReceipt({ hash: hash as Hex });
     const block = await client.getBlock({ blockNumber: receipt.blockNumber });
     return Number(block.timestamp) * 1000;
+  },
+  solanaOwner: async (tokenAccount) => {
+    if (!solanaChain) return null;
+    const account = await solanaAccount(solanaRpcUrls, bytes32ToSolana(tokenAccount));
+    return account ? (parseTokenAccount(account)?.owner ?? null) : null;
   },
   log,
   now,
@@ -139,8 +174,13 @@ const api = createApi({
   health,
   bridgeReceiver: config.bridgeReceiver,
   ingest: async (domain, txHash) => {
-    const chain = chainByDomain(config.network, domain) as EvmChain;
-    await ingestTx({ chain, network: config.network, client: reader.clientFor(domain), store, ctx, txHash, now: now() });
+    const chain = chainByDomain(config.network, domain);
+    if (chain?.kind === "solana") {
+      if (!solanaIndexer) return;
+      await solanaIndexer.ingest(txHash);
+    } else if (chain?.kind === "evm") {
+      await ingestTx({ chain, network: config.network, client: reader.clientFor(domain), store, ctx, txHash: txHash as Hex, now: now() });
+    }
     await tracker.checkTx(domain, txHash);
   },
   siteDir: config.siteDir,
@@ -188,6 +228,7 @@ const loops = [
       ix.idleMs,
     ),
   ),
+  ...(solanaIndexer ? [loop("index:solana", async () => (await solanaIndexer.tick()) !== null, solanaIndexer.idleMs)] : []),
   loop("track", async () => (await tracker.tick()) > 0, 1_000),
   loop("relay", async () => (await relayer.tick()) > 0, 3_000),
   loop("health", async () => (await health.refreshRelayerBalance(), false), 60_000),

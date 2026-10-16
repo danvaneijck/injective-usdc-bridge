@@ -98,9 +98,10 @@ export class IrisClient {
   async getFees(
     sourceDomain: number,
     destinationDomain: number,
-    opts: { forward?: boolean } = {},
+    opts: { forward?: boolean; recipientSetup?: boolean } = {},
   ): Promise<IrisFeeTier[]> {
-    const qs = opts.forward ? "?forward=true" : "";
+    // includeRecipientSetup adds the rent for creating a Solana USDC account.
+    const qs = opts.forward ? (opts.recipientSetup ? "?forward=true&includeRecipientSetup=true" : "?forward=true") : "";
     const res = await this.request(`/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}${qs}`);
     if (!Array.isArray(res)) throw new IrisError("Unexpected fee response", 200);
     return res as IrisFeeTier[];

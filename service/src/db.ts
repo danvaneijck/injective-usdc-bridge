@@ -2,6 +2,9 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+/** Hex hashes compare lowercase; base58 Solana signatures are case-sensitive. */
+const txKey = (tx: string) => (tx.startsWith("0x") ? tx.toLowerCase() : tx);
+
 export type Direction = "deposit" | "withdraw";
 export type Phase = "not_found" | "attesting" | "ready" | "expired" | "delivered";
 /**
@@ -202,13 +205,13 @@ export class Store {
   get(srcDomain: number, txHash: string, logIndex: number): TransferRow | undefined {
     return this.db
       .prepare("SELECT * FROM transfers WHERE src_domain = ? AND tx_hash = ? AND log_index = ?")
-      .get(srcDomain, txHash.toLowerCase(), logIndex) as TransferRow | undefined;
+      .get(srcDomain, txKey(txHash), logIndex) as TransferRow | undefined;
   }
 
   byTx(srcDomain: number, txHash: string): TransferRow[] {
     return this.db
       .prepare("SELECT * FROM transfers WHERE src_domain = ? AND tx_hash = ? ORDER BY log_index")
-      .all(srcDomain, txHash.toLowerCase()) as TransferRow[];
+      .all(srcDomain, txKey(txHash)) as TransferRow[];
   }
 
   /** Open transfers whose next check is due, grouped by source tx. */
@@ -247,9 +250,9 @@ export class Store {
       .run({ ...patch, updated_at: now, src_domain: row.src_domain, tx_hash: row.tx_hash, log_index: row.log_index });
   }
 
-  /** Transfers where `address` (0x, lowercase) sent or receives. Newest first. */
+  /** Transfers where `address` (0x lowercase, or a base58 Solana wallet) sent or receives. Newest first. */
   byAddress(address: string, limit: number, beforeBlockTime?: number): TransferRow[] {
-    const a = address.toLowerCase();
+    const a = txKey(address);
     const before = beforeBlockTime ?? Number.MAX_SAFE_INTEGER;
     return this.db
       .prepare(

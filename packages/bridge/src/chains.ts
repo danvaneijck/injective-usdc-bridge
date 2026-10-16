@@ -62,6 +62,7 @@ export interface EvmChain extends ChainBase {
 export interface SolanaChain extends ChainBase {
   kind: "solana";
   usdcMint: string;
+  nativeSymbol: "SOL";
 }
 
 export type Chain = EvmChain | SolanaChain;
@@ -356,6 +357,7 @@ const MAINNET: readonly Chain[] = [
     name: "Solana",
     domain: 5,
     usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    nativeSymbol: "SOL",
     rpcUrls: ["https://solana-rpc.publicnode.com"],
     explorerTx: "https://solscan.io/tx/{hash}",
     fastSource: true,

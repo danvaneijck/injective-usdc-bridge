@@ -10,5 +10,6 @@ export * from "./burn.js";
 export * from "./status.js";
 export * from "./rpc.js";
 export * from "./solana.js";
+export * from "./solanaBurn.js";
 export * from "./address.js";
 export * from "./timing.js";

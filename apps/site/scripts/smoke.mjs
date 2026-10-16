@@ -15,6 +15,8 @@ import { chromium } from "playwright-core";
 
 const SITE = (process.env.SITE_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const WALLET = process.env.WALLET;
+/** A real Solana wallet with a USDC account (read-only use: balances and checks). */
+const SOL_WALLET = process.env.SOL_WALLET ?? "CeeVcSmNej5z8zKaaoX4TUG1su7i3vPHut52vViNdeBi";
 const TRACK = process.env.TRACK; // "<domain>/<txHash>" to open a tracking page
 const OUT = process.env.OUT ?? "./smoke-out";
 if (!WALLET) throw new Error("WALLET=0x... is required");
@@ -36,6 +38,30 @@ async function check(name, fn) {
 
 async function open(viewport) {
   const page = await browser.newPage({ viewport });
+  // A Wallet Standard Solana wallet that connects and refuses to sign.
+  await page.addInitScript((address) => {
+    const account = Object.freeze({ address, publicKey: new Uint8Array(32), chains: ["solana:mainnet"], features: ["solana:signTransaction"] });
+    const wallet = {
+      version: "1.0.0",
+      name: "Smoke Solana",
+      icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxIDEiLz4=",
+      chains: ["solana:mainnet"],
+      accounts: [],
+      features: {
+        "standard:connect": { version: "1.0.0", connect: async () => ({ accounts: [account] }) },
+        "standard:events": { version: "1.0.0", on: () => () => {} },
+        "solana:signTransaction": {
+          version: "1.0.0",
+          supportedTransactionVersions: ["legacy", 0],
+          signTransaction: async () => {
+            throw new Error("smoke wallet does not sign");
+          },
+        },
+      },
+    };
+    window.addEventListener("wallet-standard:app-ready", (e) => e.detail.register(wallet));
+    window.dispatchEvent(new CustomEvent("wallet-standard:register-wallet", { detail: (api) => api.register(wallet) }));
+  }, SOL_WALLET);
   await page.addInitScript((address) => {
     const provider = {
       async request({ method }) {
@@ -125,6 +151,46 @@ if (TRACK) {
     await t.screenshot({ path: `${OUT}/5-track.png` });
   });
 }
+
+// Solana, in a fresh page so the form starts from its defaults.
+const sp = await open({ width: 1280, height: 900 });
+await sp.goto(`${SITE}/`);
+
+await check("connects a Solana wallet through Wallet Standard", async () => {
+  await sp.getByRole("button", { name: "Connect wallet" }).first().click();
+  await sp.getByRole("tab", { name: /Solana/ }).click();
+  await sp.getByRole("button", { name: "Smoke Solana" }).click();
+  await sp.getByRole("button", { name: new RegExp(`Solana wallet ${SOL_WALLET.slice(0, 4)}`) }).waitFor({ timeout: 5000 });
+  await sp.keyboard.press("Escape");
+});
+
+await check("quotes a deposit from Solana", async () => {
+  await sp.getByRole("button", { name: /^Base/ }).first().click();
+  await sp.getByRole("dialog", { name: "Bridge from" }).getByRole("button", { name: /^Solana/ }).click();
+  await sp.getByText(/^Balance/).waitFor({ timeout: 15_000 });
+  await sp.getByLabel("Amount of USDC").fill("5");
+  await sp.getByRole("button", { name: /^About .*(No fees|Fees)/ }).click({ timeout: 20_000 });
+  await sp.getByText("Solana network fee").waitFor({ timeout: 5000 });
+  await sp.getByText("You receive at least").waitFor();
+  await sp.waitForTimeout(600);
+  await sp.screenshot({ path: `${OUT}/9-solana-deposit.png` });
+});
+
+await check("quotes a withdrawal to Solana, delivered by Circle", async () => {
+  await sp.getByRole("button", { name: "Swap direction" }).click();
+  await sp.getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await sp.getByText(`To your wallet on Solana`).waitFor();
+  await sp.waitForTimeout(600);
+  await sp.screenshot({ path: `${OUT}/10-solana-withdraw.png` });
+});
+
+await check("refuses a token account typed as the Solana recipient", async () => {
+  await sp.getByRole("button", { name: "Change" }).click();
+  // The real burn spent from this account: SOL_WALLET's USDC token account.
+  await sp.getByLabel("Recipient on Solana").fill("5NhytzwGCMAAYwgJZr1yJpaSYVqUQttWHGu3MpV4o38n");
+  await sp.getByText(/That is a token account, not a wallet/).waitFor({ timeout: 15_000 });
+  await sp.getByRole("button", { name: "Use my wallet" }).click();
+});
 
 await check("status page reads the health report", async () => {
   const s = await open({ width: 1280, height: 900 });

@@ -1,5 +1,5 @@
 import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from "react";
-import type { EvmChain } from "../chains.js";
+import type { Chain } from "../chains.js";
 import { FINALITY, type Network } from "../constants.js";
 import type { Direction } from "../quote.js";
 import { expectedAttestMs } from "../timing.js";
@@ -19,7 +19,7 @@ export function ChainPicker({
 }: {
   open: boolean;
   network: Network;
-  chains: EvmChain[];
+  chains: Chain[];
   direction: Direction;
   selected: string;
   onPick: (key: string) => void;
@@ -36,7 +36,7 @@ export function ChainPicker({
     ? chains.filter((c) => c.name.toLowerCase().includes(q) || c.key.includes(q) || c.nativeSymbol.toLowerCase() === q)
     : chains;
 
-  function subline(c: EvmChain): string {
+  function subline(c: Chain): string {
     if (direction === "withdraw") return c.forwarding ? "Delivered by Circle" : `You claim it there, needs ${c.nativeSymbol}`;
     const ms = expectedAttestMs(network, c.domain, c.fastSource ? FINALITY.fast : FINALITY.standard);
     return `About ${formatDuration(ms)}`;

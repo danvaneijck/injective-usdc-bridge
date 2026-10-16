@@ -49,7 +49,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify-chains": "tsx scripts/verify-chains.ts",
-    "live-withdraw": "tsx scripts/live-withdraw.ts"
+    "live-withdraw": "tsx scripts/live-withdraw.ts",
+    "live-solana-deposit": "tsx scripts/live-solana-deposit.ts"
   },
   "dependencies": {
     "@noble/curves": "^1.9.1",
@@ -58,15 +59,16 @@
     "viem": "^2.57.7"
   },
   "devDependencies": {
+    "@solana/web3.js": "1.98.4",
     "@types/node": "^24.0.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsup": "^8.5.1",
     "tsx": "^4.20.0",
     "typescript": "~6.0.3",
-    "vitest": "^3.2.7",
-    "@types/react": "^18.3.31",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "@types/react-dom": "^18.3.7"
+    "vitest": "^3.2.7"
   },
   "engines": {
     "node": ">=22.12"

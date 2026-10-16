@@ -15,7 +15,7 @@ embedded in any Injective app.
 
 Injective on one end of every route. The other end: Ethereum, Base, Arbitrum,
 OP Mainnet, Polygon, Avalanche, Linea, Unichain, Sonic, World Chain, HyperEVM,
-Monad, Sei, Plasma, Ink, Solana (Solana legs not built yet).
+Monad, Sei, Plasma, Ink, Solana.
 
 ```sh
 cd packages/bridge
@@ -57,6 +57,14 @@ import "injective-usdc-bridge/react/styles.css";
 // Any wallet library: pass the connected address and its EIP-1193 provider
 // (Keplr and Leap users: their `.ethereum` provider).
 <Bridge wallet={{ address, provider }} onConnectWallet={openWalletPicker} />
+
+// Bridging from Solana also needs a Solana wallet: its address and a signer
+// that takes and returns wire-format bytes (Wallet Standard's shape).
+<Bridge
+  wallet={{ address, provider }}
+  solanaWallet={{ address: solAddress, signAndSendTransaction }}
+  onConnectSolanaWallet={openSolanaPicker}
+/>
 ```
 
 It quotes, approves and burns, tracks every transfer through the bridge
@@ -75,6 +83,10 @@ npm test            # package and service unit tests
 npm run typecheck
 cd contracts && forge test
 cd apps/site && npx vite build && WALLET=0x… SITE_URL=… npm run smoke   # real-Chrome check of the site
+
+# Live, with real funds (dry run unless --send; keys are read, never printed)
+KEY_FILE=… npm run live-withdraw -w packages/bridge -- --amount 1 --to solana --recipient <wallet>
+SOL_KEY_FILE=… npm run live-solana-deposit -w packages/bridge -- --amount 1 --recipient 0x…
 ```
 
 ## License

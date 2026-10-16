@@ -1,36 +1,71 @@
+import { base58 } from "@scure/base";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type Address, type Hex, formatEther, formatUnits, getAddress, isAddress, parseEther } from "viem";
 import { erc20Abi } from "../abis.js";
 import { toEvmAddress, toInjAddress } from "../address.js";
 import { buildBurn } from "../burn.js";
-import type { EvmChain } from "../chains.js";
+import type { Chain } from "../chains.js";
 import { CCTP_CONTRACTS, FINALITY, type Speed, USDC_DECIMALS } from "../constants.js";
 import type { Direction } from "../quote.js";
+import { isSolanaAddress } from "../solana.js";
+import { buildSolanaBurn, confirmSolanaSignature, submitSolanaTransaction, transactionSignature } from "../solanaBurn.js";
 import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
-import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useUsdcBalance } from "./hooks.js";
+import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
+import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useUsdcBalance } from "./hooks.js";
 import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconWallet, Spinner } from "./icons.js";
-import type { Eip1193Provider } from "./types.js";
+import type { Eip1193Provider, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
 
 /** Under this much INJ, the gas drop starts ticked. */
 const LOW_INJ = parseEther("0.01");
+/**
+ * SOL a burn on Solana needs: fees plus rent for the account that carries the
+ * message. Measured by mainnet simulation 2026-10-17: 0.00289 SOL plain,
+ * 0.00338 with the gas-drop hook. The exact figure comes from the simulation
+ * at signing; this only gates the button and labels the fee.
+ */
+const SOL_FOR_BURN = (withHook: boolean) => (withHook ? 3_450_000n : 2_950_000n);
 
-type Busy = null | "approving" | "sending";
+type Busy = null | "approving" | "sending" | "preparing" | "confirming";
+
+const BUSY_LABEL: Record<Exclude<Busy, null>, string> = {
+  approving: "Approving USDC",
+  sending: "Confirm in your wallet",
+  preparing: "Preparing the transaction",
+  confirming: "Waiting for Solana",
+};
+
+const RECIPIENT_PROBLEM = {
+  not_an_address: "That is not a Solana address.",
+  token_account: "That is a token account, not a wallet. Paste the wallet address it belongs to.",
+  not_a_wallet: "That address is a program account, not a wallet. Paste a wallet address.",
+} as const;
 
 export interface BridgeFormProps {
   env: Env;
   address: Address | null;
   provider: Eip1193Provider | null;
-  onConnectWallet?: () => void;
-  onSent(domain: number, txHash: Hex): void;
-  defaultChain?: string;
-  defaultDirection?: Direction;
+  onConnectWallet?: (() => void) | undefined;
+  solanaWallet: SolanaWallet | null;
+  onConnectSolanaWallet?: (() => void) | undefined;
+  onSent(domain: number, txHash: string): void;
+  defaultChain?: string | undefined;
+  defaultDirection?: Direction | undefined;
 }
 
-export function BridgeForm({ env, address, provider, onConnectWallet, onSent, defaultChain, defaultDirection }: BridgeFormProps) {
+export function BridgeForm({
+  env,
+  address,
+  provider,
+  onConnectWallet,
+  solanaWallet,
+  onConnectSolanaWallet,
+  onSent,
+  defaultChain,
+  defaultDirection,
+}: BridgeFormProps) {
   const [direction, setDirection] = useState<Direction>(defaultDirection ?? "deposit");
   const [peerKey, setPeerKey] = useState(defaultChain ?? "base");
   const [amountText, setAmountText] = useState("");
@@ -52,22 +87,34 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
 
   const peer = env.peerChains.find((c) => c.key === peerKey) ?? env.peerChains[0]!;
   const deposit = direction === "deposit";
-  const source = deposit ? peer : env.inj;
-  const destination = deposit ? env.inj : peer;
+  const source: Chain = deposit ? peer : env.inj;
+  const destination: Chain = deposit ? env.inj : peer;
+  const fromSolana = source.kind === "solana";
+  const toSolana = destination.kind === "solana";
+  const solAddress = solanaWallet?.address ?? null;
+  /** Who signs the burn: the Solana wallet for burns on Solana, else the EVM wallet. */
+  const sender = fromSolana ? solAddress : address;
   const amount = parseUsdc(amountText);
   const speed: Speed = source.fastSource ? (speedChoice ?? "fast") : "standard";
 
-  const recipient: Address | null =
+  const defaultRecipient = toSolana ? solAddress : address;
+  const recipient: string | null =
     recipientText === null
-      ? address
+      ? defaultRecipient
       : deposit
         ? toEvmAddress(recipientText)
-        : isAddress(recipientText.trim(), { strict: false })
-          ? getAddress(recipientText.trim())
-          : null;
+        : toSolana
+          ? isSolanaAddress(recipientText) ? recipientText.trim() : null
+          : isAddress(recipientText.trim(), { strict: false })
+            ? getAddress(recipientText.trim())
+            : null;
 
-  const balance = useUsdcBalance(env, source, address);
-  const injBalance = useInjBalance(env, deposit ? recipient : null);
+  const balance = useUsdcBalance(env, source, sender);
+  const solBalance = useSolBalance(env, fromSolana ? solAddress : null);
+  const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
+  const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
+  const recipientSetup = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
+  const recipientProblem = toSolana && recipient && solRecipient && !solRecipient.ok ? RECIPIENT_PROBLEM[solRecipient.reason] : null;
   const drop = useGasDrop(env);
   const dropOffered = deposit && drop?.available === true && env.receiver !== undefined;
   const wantDrop = dropOffered && (dropChoice ?? (injBalance !== null && injBalance < LOW_INJ));
@@ -77,6 +124,9 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
     amount,
     speed,
     gasDropFee: wantDrop && drop ? drop.dropFee : 0n,
+    recipientSetup,
+    // A Solana recipient's account check decides the fee; wait for it.
+    ready: !toSolana || recipient === null || solRecipient !== null,
   });
   const lanes = useLanes(env);
   const slowLane = lanes.find((l) => l.domain === source.domain && l.status === "delayed");
@@ -85,6 +135,7 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
   const fastEta = expectedAttestMs(env.network, source.domain, FINALITY.fast);
   const standardEta = expectedAttestMs(env.network, source.domain, FINALITY.standard);
   const eta = speed === "fast" ? fastEta : standardEta;
+  const solNeeded = SOL_FOR_BURN(wantDrop);
 
   function flip() {
     setDirection(deposit ? "withdraw" : "deposit");
@@ -94,32 +145,74 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
     setFlips((n) => n + 1);
   }
 
+  /** Remember the burn the moment it has an id, so a closed tab never loses it. */
+  function record(domain: number, txHash: string, by: string) {
+    env.journal.add({ domain, txHash, address: by.toLowerCase(), at: Date.now() });
+    void env.api.hint(domain, txHash);
+  }
+
+  async function submitSolana() {
+    if (!solanaWallet || !quote || !recipient) return;
+    setBusy("preparing");
+    const plan = await buildSolanaBurn({
+      route: { source, destination },
+      quote,
+      owner: solanaWallet.address,
+      recipient,
+      rpcUrls: env.solanaRpc,
+      ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
+    });
+    setBusy("sending");
+    let signature: string;
+    if (solanaWallet.signAndSendTransaction) {
+      const sig = await solanaWallet.signAndSendTransaction(plan.transaction);
+      signature = typeof sig === "string" ? sig : base58.encode(sig);
+      record(source.domain, signature, solanaWallet.address);
+      setBusy("confirming");
+      await confirmSolanaSignature(env.solanaRpc, signature, plan.lastValidBlockHeight);
+    } else if (solanaWallet.signTransaction) {
+      const signed = await solanaWallet.signTransaction(plan.transaction);
+      signature = transactionSignature(signed);
+      record(source.domain, signature, solanaWallet.address);
+      setBusy("confirming");
+      await submitSolanaTransaction(env.solanaRpc, signed, plan.lastValidBlockHeight);
+    } else {
+      throw new Error("This Solana wallet cannot sign transactions.");
+    }
+    setAmountText("");
+    onSent(source.domain, signature);
+  }
+
+  async function submitEvm() {
+    if (!provider || !address || !quote || !recipient || source.kind !== "evm") return;
+    const client = env.clientFor(source);
+    const spender = CCTP_CONTRACTS[env.network].tokenMessenger;
+    const allowance = await client.readContract({ address: source.usdc, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
+    const plan = buildBurn({
+      network: env.network,
+      route: { source, destination },
+      quote,
+      recipient,
+      allowance,
+      ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
+    });
+    if (plan.approve) {
+      setBusy("approving");
+      const approval = await sendCall(provider, address, source, client, plan.approve);
+      await client.waitForTransactionReceipt({ hash: approval, timeout: 180_000 });
+    }
+    setBusy("sending");
+    const hash: Hex = await sendCall(provider, address, source, client, plan.burn);
+    record(source.domain, hash, address);
+    setAmountText("");
+    onSent(source.domain, hash);
+  }
+
   async function submit() {
-    if (!provider || !address || !quote || !recipient || !fresh) return;
+    if (!quote || !recipient || !fresh) return;
     setError(null);
     try {
-      const client = env.clientFor(source);
-      const spender = CCTP_CONTRACTS[env.network].tokenMessenger;
-      const allowance = await client.readContract({ address: source.usdc, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
-      const plan = buildBurn({
-        network: env.network,
-        route: { source, destination },
-        quote,
-        recipient,
-        allowance,
-        ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
-      });
-      if (plan.approve) {
-        setBusy("approving");
-        const approval = await sendCall(provider, address, source, client, plan.approve);
-        await client.waitForTransactionReceipt({ hash: approval, timeout: 180_000 });
-      }
-      setBusy("sending");
-      const hash = await sendCall(provider, address, source, client, plan.burn);
-      env.journal.add({ domain: source.domain, txHash: hash, address: address.toLowerCase(), at: Date.now() });
-      void env.api.hint(source.domain, hash);
-      setAmountText("");
-      onSent(source.domain, hash);
+      await (fromSolana ? submitSolana() : submitEvm());
     } catch (e) {
       setError(friendlyError(e));
     } finally {
@@ -128,11 +221,18 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
   }
 
   let action: { label: string; enabled: boolean; run?: () => void };
-  if (!address) action = { label: "Connect wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
-  else if (busy) action = { label: busy === "approving" ? "Approving USDC" : "Confirm in your wallet", enabled: false };
+  if (fromSolana && !solAddress) {
+    action = { label: "Connect a Solana wallet", enabled: Boolean(onConnectSolanaWallet), ...(onConnectSolanaWallet ? { run: onConnectSolanaWallet } : {}) };
+  } else if (!fromSolana && !address) {
+    action = { label: "Connect wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
+  } else if (busy) action = { label: BUSY_LABEL[busy], enabled: false };
   else if (amount === null || amount === 0n) action = { label: "Enter an amount", enabled: false };
-  else if (!recipient) action = { label: "Enter a valid recipient", enabled: false };
+  else if (!recipient) {
+    action = { label: deposit ? "Enter your Injective address" : toSolana ? "Enter a Solana wallet address" : "Enter a valid recipient", enabled: false };
+  } else if (recipientProblem) action = { label: "Check the recipient", enabled: false };
+  else if (toSolana && solRecipient === null) action = { label: "Checking the recipient", enabled: false };
   else if (balance !== null && amount > balance) action = { label: `Not enough USDC on ${source.name}`, enabled: false };
+  else if (fromSolana && solBalance !== null && solBalance < solNeeded) action = { label: "Not enough SOL for the network fee", enabled: false };
   else if (quoteError) action = { label: quoteError, enabled: false };
   else if (!fresh) action = { label: "Getting a quote", enabled: false };
   else action = { label: deposit ? "Bridge to Injective" : `Bridge to ${destination.name}`, enabled: true, run: () => void submit() };
@@ -152,7 +252,7 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
           locked={!deposit}
           onPick={() => setPicking(true)}
           extra={
-            address && balance !== null ? (
+            sender && balance !== null ? (
               <span className="iub-balance">
                 <span className="iub-muted">Balance</span> {formatUsdc(balance)}
                 {balance > 0n ? (
@@ -250,11 +350,19 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
         <Recipient
           deposit={deposit}
           destination={destination}
-          address={address}
+          fallback={defaultRecipient}
           text={recipientText}
-          valid={recipient !== null}
+          valid={recipient !== null && recipientProblem === null}
           onChange={setRecipientText}
+          connect={
+            deposit && !address && onConnectWallet
+              ? { label: "Connect wallet", run: onConnectWallet }
+              : toSolana && !solAddress && onConnectSolanaWallet
+                ? { label: "Connect Solana wallet", run: onConnectSolanaWallet }
+                : null
+          }
         />
+        {recipientProblem ? <Note tone="error">{recipientProblem}</Note> : null}
 
         {!deposit && !destination.forwarding ? (
           <Note>
@@ -292,10 +400,22 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
                           : "You claim it"}
                     </dd>
                   </div>
+                  {quote.recipientSetup ? (
+                    <div>
+                      <dt>USDC account</dt>
+                      <dd>Opened for the recipient, in the delivery fee</dd>
+                    </div>
+                  ) : null}
                   {quote.gasDropFee > 0n && drop ? (
                     <div>
                       <dt>{formatEther(drop.dropWei)} INJ for gas</dt>
                       <dd>{formatUsdc(quote.gasDropFee)} USDC</dd>
+                    </div>
+                  ) : null}
+                  {fromSolana ? (
+                    <div>
+                      <dt>Solana network fee</dt>
+                      <dd>About {formatAmount(solNeeded, 9, 4)} SOL</dd>
                     </div>
                   ) : null}
                   <div className="iub-fees-total">
@@ -331,6 +451,7 @@ export function BridgeForm({ env, address, provider, onConnectWallet, onSent, de
         onPick={(key) => {
           setPeerKey(key);
           setSpeedChoice(null);
+          setRecipientText(null);
           setPicking(false);
         }}
         onClose={() => setPicking(false)}
@@ -358,7 +479,7 @@ function Side({
   children,
 }: {
   label: string;
-  chain: EvmChain;
+  chain: Chain;
   locked: boolean;
   onPick: () => void;
   extra?: ReactNode;
@@ -391,21 +512,23 @@ function Side({
 function Recipient({
   deposit,
   destination,
-  address,
+  fallback,
   text,
   valid,
   onChange,
+  connect,
 }: {
   deposit: boolean;
-  destination: EvmChain;
-  address: Address | null;
+  destination: Chain;
+  /** The connected wallet that receives by default, if any. */
+  fallback: string | null;
   text: string | null;
   valid: boolean;
   onChange: (t: string | null) => void;
+  connect: { label: string; run: () => void } | null;
 }) {
-  if (text === null) {
-    if (!address) return null;
-    const shown = deposit ? toInjAddress(address) : address;
+  if (text === null && fallback) {
+    const shown = deposit ? toInjAddress(fallback as Address) : fallback;
     return (
       <div className="iub-recipient">
         <IconWallet />
@@ -419,20 +542,31 @@ function Recipient({
       </div>
     );
   }
+  const value = text ?? "";
   return (
     <div className="iub-recipient-edit">
       <input
-        className={valid || text === "" ? "iub-input" : "iub-input iub-input-bad"}
-        placeholder={deposit ? "inj1... or 0x... address on Injective" : `0x... address on ${destination.name}`}
+        className={valid || value === "" ? "iub-input" : "iub-input iub-input-bad"}
+        placeholder={
+          deposit
+            ? "Your Injective address, inj1... or 0x..."
+            : destination.kind === "solana"
+              ? "Solana wallet address"
+              : `0x... address on ${destination.name}`
+        }
         aria-label={`Recipient on ${destination.name}`}
-        value={text}
+        value={value}
         spellCheck={false}
         autoComplete="off"
         onChange={(e) => onChange(e.target.value)}
       />
-      {address ? (
+      {fallback ? (
         <button type="button" className="iub-link" onClick={() => onChange(null)}>
           Use my wallet
+        </button>
+      ) : connect ? (
+        <button type="button" className="iub-link" onClick={connect.run}>
+          {connect.label}
         </button>
       ) : null}
     </div>

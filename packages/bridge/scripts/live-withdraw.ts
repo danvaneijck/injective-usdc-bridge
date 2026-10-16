@@ -3,6 +3,10 @@
  * watches until the destination chain shows the mint. Dry run unless --send.
  *
  *   KEY_FILE=/path/to/key npm run live-withdraw -- --amount 1 --to base [--recipient 0x..] [--send]
+ *   KEY_FILE=/path/to/key npm run live-withdraw -- --amount 1.5 --to solana --recipient <wallet> [--send]
+ *
+ * To Solana the recipient is a wallet; the burn names its USDC account, and
+ * asks Circle to create that account when it does not exist yet.
  *
  * KEY_FILE holds a hex private key. It is read in-process and never printed.
  */
@@ -17,6 +21,7 @@ import { CCTP_CONTRACTS, USDC_DECIMALS } from "../src/constants.js";
 import { IrisClient } from "../src/iris.js";
 import { quoteTransfer } from "../src/quote.js";
 import { createChainReader, feeOverrides, publicClientFor, toViemChain } from "../src/rpc.js";
+import { checkSolanaRecipient } from "../src/solana.js";
 import { resolveTransfer } from "../src/status.js";
 
 const { values } = parseArgs({
@@ -37,8 +42,16 @@ const account = privateKeyToAccount((raw.startsWith("0x") ? raw : `0x${raw}`) as
 
 const source = injective(network);
 const destination = chainByKey(network, values.to!);
-if (!destination || destination.kind !== "evm") throw new Error(`Unknown EVM chain ${values.to}`);
+if (!destination) throw new Error(`Unknown chain ${values.to}`);
+if (destination.kind === "solana" && !values.recipient) throw new Error("--recipient <Solana wallet> is required for Solana");
 const recipient = values.recipient ?? account.address;
+let recipientSetup = false;
+if (destination.kind === "solana") {
+  const check = await checkSolanaRecipient(destination.rpcUrls, recipient, destination.usdcMint);
+  if (!check.ok) throw new Error(`Solana recipient refused: ${check.reason}`);
+  recipientSetup = !check.tokenAccountExists;
+  console.log(`usdc acct  ${check.tokenAccount} (${check.tokenAccountExists ? "exists" : "missing: Circle will create it"})`);
+}
 const amount = parseUnits(values.amount!, USDC_DECIMALS);
 const usd = (v: bigint) => `${formatUnits(v, USDC_DECIMALS)} USDC`;
 
@@ -62,9 +75,9 @@ const [balance, allowance, injBalance] = await Promise.all([
 console.log(`balances   ${usd(balance)}, ${formatUnits(injBalance, 18)} INJ`);
 
 const route = { source, destination };
-const quote = await quoteTransfer({ iris, route, amount });
+const quote = await quoteTransfer({ iris, route, amount, recipientSetup });
 console.log(
-  `quote      amount ${usd(quote.amount)}, forwarded ${quote.forwarded}, forwarding fee ${usd(quote.forwardingFee)}, ` +
+  `quote      amount ${usd(quote.amount)}, forwarded ${quote.forwarded}, setup ${quote.recipientSetup}, forwarding fee ${usd(quote.forwardingFee)}, ` +
     `maxFee ${usd(quote.maxFee)}, min received ${usd(quote.minReceived)}`,
 );
 const plan = buildBurn({ network, route, quote, recipient, allowance });

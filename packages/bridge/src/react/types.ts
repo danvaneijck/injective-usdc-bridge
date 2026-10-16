@@ -19,10 +19,30 @@ export interface BridgeWallet {
   provider: Eip1193Provider | null;
 }
 
+/**
+ * The host's Solana wallet, for transfers from Solana. Shaped after Wallet
+ * Standard's solana:signAndSendTransaction / solana:signTransaction, which
+ * take and return wire-format bytes, so any wallet library can supply it.
+ * The transaction arrives already signed by a one-off account the burn
+ * creates; the wallet adds the owner's signature.
+ */
+export interface SolanaWallet {
+  /** Base58 wallet address. */
+  address: string;
+  /** Preferred: the wallet signs and broadcasts. Returns the signature (base58 or raw bytes). */
+  signAndSendTransaction?: (transaction: Uint8Array) => Promise<string | Uint8Array>;
+  /** Otherwise: the wallet signs and the widget broadcasts. Returns the signed wire bytes. */
+  signTransaction?: (transaction: Uint8Array) => Promise<Uint8Array>;
+}
+
 export interface BridgeProps {
   wallet: BridgeWallet;
   /** Opens the host's wallet picker. Without it the button only says to connect. */
   onConnectWallet?: () => void;
+  /** Solana wallet, for bridging from Solana. Withdrawals to Solana need only an address. */
+  solanaWallet?: SolanaWallet | null;
+  /** Opens the host's Solana wallet picker. */
+  onConnectSolanaWallet?: () => void;
   network?: Network;
   /** The bridge service. Defaults to Choice's. "" means this page's own origin. */
   apiUrl?: string;

@@ -214,7 +214,6 @@ button {
 }
 .site-connect,
 .site-account {
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -242,9 +241,70 @@ button {
 .site-account:active {
   transform: scale(0.97);
 }
+.site-wallet-bar {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .site-account-box {
   position: relative;
-  justify-self: end;
+  animation: site-pop 0.3s var(--site-ease);
+}
+.site-wallet-with-chain {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.site-wallet-chain {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--site-raised);
+}
+.site-kind {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 8px 0 14px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #0c0d11;
+  border: 1px solid var(--site-border);
+}
+.site-kind-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 10px;
+  background: var(--site-raised);
+  box-shadow: inset 0 0 0 1px var(--site-border-strong);
+  transition: transform 0.32s var(--site-ease);
+}
+.site-kind[data-active="1"] .site-kind-indicator {
+  transform: translateX(100%);
+}
+.site-kind button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--site-muted);
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+.site-kind button[aria-selected="true"] {
+  color: var(--site-text);
 }
 .site-account {
   padding: 0 12px 0 10px;
@@ -851,9 +911,21 @@ button {
   .site-account {
     padding: 0 14px;
   }
-  .site-account .site-caret,
-  .site-account .site-wallet-icon {
+  .site-account .site-caret {
     display: none;
+  }
+  .site-account-evm .site-wallet-icon {
+    display: none;
+  }
+  /* Two wallets: the Solana chip shrinks to its icon. */
+  .site-account-solana .site-account-address {
+    display: none;
+  }
+  .site-account-solana .site-account {
+    padding: 0 11px;
+  }
+  .site-wallet-bar {
+    gap: 6px;
   }
   .site-intro h1 {
     font-size: 23px;

@@ -34,6 +34,8 @@ export interface Quote {
   minReceived: bigint;
   /** Circle submits the destination mint. */
   forwarded: boolean;
+  /** Solana only: Circle also creates the recipient's USDC account (in forwardingFee). */
+  recipientSetup: boolean;
 }
 
 export type ForwardTier = "low" | "med" | "high";
@@ -51,6 +53,11 @@ export interface QuoteOptions {
   protocolFeeBufferPct?: number;
   /** Deposits only: the BridgeReceiver drop fee the user will pay. */
   gasDropFee?: bigint;
+  /**
+   * Solana destinations: the recipient has no USDC account yet, so ask Circle
+   * to create one (forwarding only; the fee includes the rent).
+   */
+  recipientSetup?: boolean;
 }
 
 export class RouteError extends Error {
@@ -89,8 +96,13 @@ export async function quoteTransfer(opts: QuoteOptions): Promise<Quote> {
     throw new RouteError(`Circle does not forward to ${route.destination.name}`);
   }
 
+  const recipientSetup = opts.recipientSetup === true;
+  if (recipientSetup && !(forwarded && route.destination.kind === "solana")) {
+    throw new RouteError("Recipient account setup is a Solana forwarding option");
+  }
   const tiers = await iris.getFees(route.source.domain, route.destination.domain, {
     forward: forwarded,
+    recipientSetup,
   });
   const threshold = speed === "fast" && route.source.fastSource ? FINALITY.fast : FINALITY.standard;
   const tier = pickTier(tiers, threshold);
@@ -132,6 +144,7 @@ export async function quoteTransfer(opts: QuoteOptions): Promise<Quote> {
     maxFee,
     minReceived: amount - totalFees,
     forwarded,
+    recipientSetup,
   };
 }
 

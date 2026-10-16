@@ -2,9 +2,10 @@ import { type Address, type Hex, encodeFunctionData, isAddress } from "viem";
 import { erc20Abi, tokenMessengerV2Abi } from "./abis.js";
 import { CCTP_CONTRACTS, type Network, ZERO_BYTES32 } from "./constants.js";
 import { encodeGasDropHook } from "./gasDrop.js";
-import { FORWARD_HOOK_DATA } from "./hookData.js";
+import { FORWARD_HOOK_DATA, forwardHookDataWithAccountSetup } from "./hookData.js";
 import { addressToBytes32 } from "./message.js";
 import { type Quote, type Route, RouteError, routeDirection } from "./quote.js";
+import { associatedTokenAddress, isWalletAddress, solanaToBytes32 } from "./solana.js";
 
 export interface EvmCall {
   to: Address;
@@ -26,7 +27,10 @@ export interface BuildBurnOptions {
   network: Network;
   route: Route;
   quote: Quote;
-  /** EVM address that receives USDC on the destination chain. */
+  /**
+   * Who receives the USDC: an EVM address, or for Solana the owner's wallet
+   * address (the burn names that wallet's USDC account, never the wallet).
+   */
   recipient: string;
   /** Current USDC allowance of the TokenMessenger; omit to always approve. */
   allowance?: bigint;
@@ -50,20 +54,32 @@ export function buildBurn(opts: BuildBurnOptions): BurnPlan {
   if (route.source.kind !== "evm") {
     throw new RouteError(`${route.source.name} burns are not supported yet`);
   }
-  if (route.destination.kind !== "evm") {
-    throw new RouteError(`${route.destination.name} delivery is not supported yet`);
-  }
   if (routeDirection(route) !== quote.direction) {
     throw new RouteError("Quote was made for a different route");
   }
-  if (!isAddress(opts.recipient)) {
-    throw new RouteError(`Recipient ${opts.recipient} is not an EVM address`);
+
+  let mintRecipient: Hex;
+  let hookData: Hex;
+  if (route.destination.kind === "solana") {
+    // Circle delivers on Solana; without it the user would need SOL and a
+    // Solana claim, which this package does not build.
+    if (!quote.forwarded) throw new RouteError("Solana delivery needs Circle forwarding");
+    if (!isWalletAddress(opts.recipient)) {
+      throw new RouteError(`Recipient ${opts.recipient} is not a Solana wallet address`);
+    }
+    const owner = opts.recipient.trim();
+    mintRecipient = solanaToBytes32(associatedTokenAddress(owner, route.destination.usdcMint));
+    hookData = quote.recipientSetup ? forwardHookDataWithAccountSetup(solanaToBytes32(owner)) : FORWARD_HOOK_DATA;
+  } else {
+    if (!isAddress(opts.recipient)) {
+      throw new RouteError(`Recipient ${opts.recipient} is not an EVM address`);
+    }
+    mintRecipient = addressToBytes32(opts.recipient);
+    hookData = quote.forwarded ? FORWARD_HOOK_DATA : "0x";
   }
 
   const { tokenMessenger } = CCTP_CONTRACTS[network];
-  const mintRecipient = addressToBytes32(opts.recipient);
   const destinationCaller = ZERO_BYTES32;
-  const hookData: Hex = quote.forwarded ? FORWARD_HOOK_DATA : "0x";
 
   const data = quote.forwarded
     ? encodeFunctionData({

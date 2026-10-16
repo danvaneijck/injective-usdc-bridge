@@ -261,8 +261,7 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
   relay mode it also completes v1 deposits, since it does not care which UI
   made the burn.
 - **Not yet**: withdrawal backstop mints on peer chains (Plasma, or when
-  Circle's forward stalls), Solana-source burns, alerts beyond the health
-  endpoint.
+  Circle's forward stalls), alerts beyond the health endpoint.
 
 ## Widget (phase 2)
 
@@ -274,7 +273,8 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
   dependency in the host.
 - Transfers list = service API merged with a multi-entry local journal (never
   a single slot). The confirm button is disabled while a burn is in flight.
-- Solana code is a lazy chunk.
+- Solana support adds no Solana SDK: the burn and the transaction are built
+  with the noble/scure libraries the package already uses (see Solana below).
 - UI copy has no em dashes.
 
 **Built 2026-10-17** (`packages/bridge/src/react`, Dan chose: own site first,
@@ -321,8 +321,45 @@ Choice v2 look, themeable):
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
 | 1 | **Live.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Shadow at bridge-api.choice.exchange from 2026-10-16; `MODE=relay` with the keeper from 2026-10-16 22:25Z (receiver and relayer seeded 0.05 INJ each). |
 | 2 | **Widget live** on bridge.choice.exchange from 2026-10-16 22:26Z, smoke-tested in Chrome against production. Next: Choice v2 and the launchpad, replacing their jumper.xyz links. |
-| 3 | Solana legs (port v1 `solanaCctp.ts`; forwarding needs the recipient's USDC ATA and the extended hook for ATA creation). HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
+| 3 | **Solana built 2026-10-17** (see Solana). Next: HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |
+
+## Solana
+
+Both directions, built 2026-10-17 (Dan: both together, public RPC for now).
+
+- **Injective to Solana**: an ordinary Injective burn whose `mintRecipient`
+  is the recipient wallet's USDC associated token account, never the wallet
+  (a burn naming the wallet is unusable). Circle always delivers (about 0.13
+  USDC). When the account does not exist, the hook asks Circle to create it:
+  version 0, Circle data length 33, byte 32 = 1, bytes 33-65 the owner, fee
+  quoted with `includeRecipientSetup=true` (about 0.29 USDC). The widget
+  checks a typed recipient on chain and refuses a token account, the classic
+  way to strand a Solana transfer. No Solana wallet is needed to receive.
+- **Solana to Injective**: `deposit_for_burn` (or `_with_hook` for the gas
+  drop, pinned to BridgeReceiver exactly as on EVM chains), signed by the
+  user's Solana wallet and a one-off event account. The transaction is
+  serialised here (legacy format) and checked byte for byte against
+  @solana/web3.js in tests; a real mainnet burn is rebuilt byte for byte; it
+  is simulated before signing, which also sizes compute and refuses a burn
+  that would fail. The user pays about 0.0029 SOL (0.0034 with the hook),
+  mostly the event account's rent. Our relayer mints on Injective as for EVM
+  deposits.
+- **Indexing**: every Solana burn to Injective lists TokenMessengerMinter's
+  `remote_token_messenger` account for domain 29 (`2tFfjwfz…KYvng`), so its
+  signature history is a complete, small index (about 1 burn a day in
+  October 2026; Injective-to-Solana mints list it too and are skipped). The
+  cursor never passes a burn it could not read. Solana now has version 1
+  transactions, which @solana/web3.js 1.x cannot read; the indexer asks the
+  RPC for them and falls back to Circle's decoding for any layout it does not
+  know. Signatures and wallets are base58 and case-sensitive: the service
+  lowercases hex only.
+- **Wallets**: the widget takes a `solanaWallet` shaped after Wallet
+  Standard's sign methods (wire bytes in and out); the site finds Phantom,
+  Solflare, Backpack and MetaMask through Wallet Standard.
+- **Not yet**: claiming on Solana by hand when Circle's forward fails (v1's
+  `receive_message` builder exists to port), reclaiming the event account's
+  rent.
 
 ## Open
 

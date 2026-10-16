@@ -18,7 +18,8 @@ export function Bridge(props: BridgeProps) {
   const [view, setView] = useState<View>({ name: "form" });
   const raw = props.wallet.address;
   const address: Address | null = raw && isAddress(raw, { strict: false }) ? getAddress(raw) : null;
-  const activity = useActivity(env, address);
+  const solAddress = props.solanaWallet?.address ?? null;
+  const activity = useActivity(env, [address, solAddress].filter((a): a is string => a !== null));
   const inFlight = activity.items.filter((it) => !it.view || progressOf(it.view, Date.now()).headline !== "Delivered").length;
   const tab = view.name === "activity" || (view.name === "track" && view.from === "activity") ? "activity" : "form";
 
@@ -43,6 +44,8 @@ export function Bridge(props: BridgeProps) {
           address={address}
           provider={props.wallet.provider}
           onConnectWallet={props.onConnectWallet}
+          solanaWallet={props.solanaWallet ?? null}
+          onConnectSolanaWallet={props.onConnectSolanaWallet}
           onSent={(domain, txHash) => setView({ name: "track", domain, txHash, from: "form" })}
           defaultChain={props.defaultChain}
           defaultDirection={props.defaultDirection}
@@ -53,7 +56,7 @@ export function Bridge(props: BridgeProps) {
         <div className="iub-view" key="activity">
           <Activity
             env={env}
-            connected={address !== null}
+            connected={address !== null || solAddress !== null}
             items={activity.items}
             loading={activity.loading}
             error={activity.error}

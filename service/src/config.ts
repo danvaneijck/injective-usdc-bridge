@@ -109,12 +109,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
   const mode = (env.MODE ?? "shadow") as Mode;
   if (mode !== "shadow" && mode !== "relay") throw new Error(`Bad MODE ${mode}`);
 
-  const evmKeys = chains(network)
-    .filter((c) => c.kind === "evm")
-    .map((c) => c.key);
-  const chainKeys = env.CHAINS ? env.CHAINS.split(",").map((s) => s.trim()) : evmKeys;
+  const allKeys = chains(network).map((c) => c.key);
+  const chainKeys = env.CHAINS ? env.CHAINS.split(",").map((s) => s.trim()) : allKeys;
   for (const k of chainKeys) {
-    if (!evmKeys.includes(k)) throw new Error(`CHAINS has unknown EVM chain ${k}`);
+    if (!allKeys.includes(k)) throw new Error(`CHAINS has unknown chain ${k}`);
   }
 
   // RPC_<DOMAIN>=url1,url2  e.g. RPC_29=http://172.30.0.1:8545
