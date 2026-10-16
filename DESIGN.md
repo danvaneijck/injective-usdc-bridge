@@ -153,6 +153,41 @@ conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
 - Not yet deployed. v1's `GasDropReceiver` stays live until the new widget
   ships; the service relays both.
 
+## Paying for gas without top-ups
+
+Measured 2026-10-16 on Injective: a deposit mint uses ~560k gas at the 0.16
+gwei base fee, about 0.00009 INJ (~$0.0008 at $9.22). ⚠️ Injective bills
+`gasLimit × maxFeePerGas` up front and refunds nothing, so the relayer pins
+the fee to base fee + 12.5% with no tip, and sizes the limit from an estimate
++20%. At that cost 1 INJ covers ~11,000 deposits, over a year at v1's volume.
+
+The real recurring cost is the gas drop (0.02 INJ, ~$0.18, per user), and
+users pay for it in USDC. The plan for running without manual top-ups:
+
+- `dropFee` is priced by the service's `pricer` key at the drop's INJ value
+  plus a small margin, from the Choice v2 USDC/wINJ pool price.
+- A keeper loop, with the relayer wallet as BridgeReceiver's `sweeper`, sweeps
+  accrued fees when either the receiver's float or the relayer's own INJ runs
+  low, swaps USDC to INJ on Choice v2, and refills both.
+- Swap path: the hookless CL pool wINJ/USDC (fee 500, pool id
+  `0xa9c3b5cd…dfb6`, ~$6.7k TVL, ~3% impact at $100) through the
+  UniversalRouter with exact, 15-minute Permit2 grants and `UNWRAP_WETH` to
+  native INJ; built locally (trippy-mcp's `buildSwapPlan` / `assertSafePlan`),
+  never from the aggregator API's calldata.
+
+No new fee on plain deposits: the margin on opt-in drops funds the relays.
+If drops turn out rare, `feeBps` (capped at 50) or a flat relay fee in
+BridgeReceiver is the lever.
+
+## Deploy (Choice server)
+
+The service runs beside Choice v2 mainnet as its own compose project
+`choice-v2-mainnet-bridge` (choice_v2_deploy #29) behind
+`bridge-api.choice.exchange` (choice_docker_env #46). Image:
+`ghcr.io/danvaneijck/injective-usdc-bridge-service:sha-*`, published by this
+repo's CI, public. Reads and sends use the box's local node; log scans never
+do, because it answers pruned ranges with an empty list.
+
 ## bridge-service (phase 1)
 
 `service/`, one Node process. `MODE=shadow` indexes and tracks but never
