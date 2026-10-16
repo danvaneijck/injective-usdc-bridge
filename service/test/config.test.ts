@@ -17,6 +17,12 @@ describe("loadConfig", () => {
     expect(c.legacyReceivers).toHaveLength(2);
   });
 
+  it("accepts Choice v2's network names and checks CHAIN_ID against them", () => {
+    expect(loadConfig({ NETWORK: "injective_mainnet", CHAIN_ID: "1776" }).network).toBe("mainnet");
+    expect(loadConfig({ NETWORK: "injective_testnet", CHAIN_ID: "1439" }).network).toBe("testnet");
+    expect(() => loadConfig({ NETWORK: "injective_mainnet", CHAIN_ID: "1439" })).toThrow(/CHAIN_ID/);
+  });
+
   it("rejects a log endpoint without a span, and relay mode without a key", () => {
     expect(() => loadConfig({ LOG_RPC_19: "https://no-span.example" })).toThrow(/url@span/);
     expect(() => loadConfig({ MODE: "relay" })).toThrow(/RELAYER_KEY_FILE/);

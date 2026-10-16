@@ -49,9 +49,22 @@ function addressOrUndefined(v: string | undefined, name: string): Address | unde
   return getAddress(v);
 }
 
+/** Choice v2's stack names networks injective_mainnet / injective_testnet. */
+const NETWORK_ALIASES: Record<string, Network> = {
+  mainnet: "mainnet",
+  testnet: "testnet",
+  injective_mainnet: "mainnet",
+  injective_testnet: "testnet",
+};
+const CHAIN_IDS: Record<Network, string> = { mainnet: "1776", testnet: "1439" };
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig {
-  const network = (env.NETWORK ?? "mainnet") as Network;
-  if (network !== "mainnet" && network !== "testnet") throw new Error(`Bad NETWORK ${network}`);
+  const network = NETWORK_ALIASES[env.NETWORK ?? "mainnet"];
+  if (!network) throw new Error(`Bad NETWORK ${env.NETWORK}`);
+  // Choice v2's preflight requires CHAIN_ID on every service; make it agree.
+  if (env.CHAIN_ID && env.CHAIN_ID !== CHAIN_IDS[network]) {
+    throw new Error(`CHAIN_ID ${env.CHAIN_ID} does not match NETWORK ${env.NETWORK}`);
+  }
   const mode = (env.MODE ?? "shadow") as Mode;
   if (mode !== "shadow" && mode !== "relay") throw new Error(`Bad MODE ${mode}`);
 

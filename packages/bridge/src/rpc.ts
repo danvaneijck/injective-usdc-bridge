@@ -99,6 +99,10 @@ export function createChainReader(
  * `tipFloorWei` replaces the chain's floor. The floor exists for MetaMask
  * (it discards a 0 tip and misprices); a backend signer can pass 0n and pay
  * base fee only, which is how most Injective mints land (0.16 gwei).
+ *
+ * ⚠️ Injective bills gasLimit × maxFeePerGas up front and refunds nothing, so
+ * the ceiling is what you pay. It is the base fee plus a 12.5% guard against
+ * an uptick, not the usual 2× headroom, which would simply double the fee.
  */
 export async function feeOverrides(
   client: PublicClient,
@@ -113,5 +117,5 @@ export async function feeOverrides(
   ]);
   const baseFee = block?.baseFeePerGas ?? 0n;
   const priority = tip > floor ? tip : floor;
-  return { maxFeePerGas: baseFee * 2n + priority, maxPriorityFeePerGas: priority };
+  return { maxFeePerGas: baseFee + baseFee / 8n + priority, maxPriorityFeePerGas: priority };
 }
