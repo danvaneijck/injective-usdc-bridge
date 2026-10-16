@@ -1,0 +1,53 @@
+{
+  "name": "injective-usdc-bridge",
+  "version": "0.0.0",
+  "description": "Native USDC bridge to and from Injective over Circle CCTP V2: chain registry, burn builders, attestation client and delivery status.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "injective",
+    "usdc",
+    "cctp",
+    "bridge",
+    "circle"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify-chains": "tsx scripts/verify-chains.ts",
+    "live-withdraw": "tsx scripts/live-withdraw.ts"
+  },
+  "dependencies": {
+    "viem": "^2.57.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.20.0",
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

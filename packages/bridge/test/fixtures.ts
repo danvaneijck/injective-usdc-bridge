@@ -1,0 +1,41 @@
+import type { Hex } from "viem";
+import type { IrisMessage } from "../src/iris.js";
+
+/**
+ * Real mainnet transfer: Injective (29) -> Base (6), 227.118876 USDC,
+ * standard delivery, no hook. From Iris on 2026-10-16.
+ */
+export const INJ_TO_BASE_TX: Hex =
+  "0x900e5ebea3da9be749e7bc4718d5e2871ca8a5f5e67c7dc3998328fd1abc988e";
+
+export const INJ_TO_BASE_NONCE: Hex =
+  "0x65e2bf14635d02b5900a28d00eff3ac9ab9b9369ac7e565284190de286fdbdd2";
+
+export const INJ_TO_BASE_MESSAGE: Hex =
+  "0x000000010000001d0000000665e2bf14635d02b5900a28d00eff3ac9ab9b9369ac7e565284190de286fdbdd200000000000000000000000028b5a0e9c621a5badaa536219b3a228c8168cf5d00000000000000000000000028b5a0e9c621a5badaa536219b3a228c8168cf5d0000000000000000000000000000000000000000000000000000000000000000000003e8000007d000000001000000000000000000000000a00c59ff5a080d2b954d0c75e46e22a0c371235a00000000000000000000000073fcb2d05f2e29561b58177af7f22ac19b3b484f000000000000000000000000000000000000000000000000000000000d898f1c00000000000000000000000073fcb2d05f2e29561b58177af7f22ac19b3b484f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+export const INJ_TO_BASE_ATTESTATION: Hex =
+  "0x40df2d1efaa1eea53599945689e6adac0c4042b54d756c9d33a577c31ee04d8366750da60eebf1b02c904a0c162b63fa7d54bdc3868e21fbb670e7ade15c75121beb495944c6ed32bee8fbc1f203a41c4c4b93e684bcea7454dc817ad6df5789e76a64da19a8928605bdcae420682d2003d0bb3a1f733550ac198521404167e5421b";
+
+export function completeMessage(overrides: Partial<IrisMessage> = {}): IrisMessage {
+  return {
+    message: INJ_TO_BASE_MESSAGE,
+    eventNonce: INJ_TO_BASE_NONCE,
+    attestation: INJ_TO_BASE_ATTESTATION,
+    cctpVersion: 2,
+    status: "complete",
+    delayReason: null,
+    ...overrides,
+  };
+}
+
+export function pendingMessage(): IrisMessage {
+  return {
+    message: "0x",
+    eventNonce: "0x",
+    attestation: "PENDING",
+    cctpVersion: 2,
+    status: "pending_confirmations",
+    delayReason: null,
+  };
+}
