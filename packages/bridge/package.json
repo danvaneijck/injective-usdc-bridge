@@ -38,6 +38,9 @@
     "live-withdraw": "tsx scripts/live-withdraw.ts"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.1",
+    "@noble/hashes": "^1.8.0",
+    "@scure/base": "^1.2.6",
     "viem": "^2.57.7"
   },
   "devDependencies": {

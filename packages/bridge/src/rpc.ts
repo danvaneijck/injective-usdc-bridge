@@ -10,6 +10,7 @@ import {
 import { messageTransmitterV2Abi } from "./abis.js";
 import { type EvmChain, chainByDomain } from "./chains.js";
 import { CCTP_CONTRACTS, type Network } from "./constants.js";
+import { isSolanaNonceUsed } from "./solana.js";
 
 export function toViemChain(chain: EvmChain, rpcUrls?: readonly string[]): ViemChain {
   const urls = [...(rpcUrls ?? chain.rpcUrls)];
@@ -75,8 +76,18 @@ export function createChainReader(
   };
   return {
     clientFor,
-    isNonceUsed: (domain: number, nonce: Hex) => isNonceUsed(clientFor(domain), network, nonce),
-    destinationBlock: (domain: number) => clientFor(domain).getBlockNumber(),
+    isNonceUsed: (domain: number, nonce: Hex): Promise<boolean> => {
+      const chain = chainByDomain(network, domain);
+      if (chain?.kind === "solana") {
+        return isSolanaNonceUsed(rpcOverrides[domain] ?? chain.rpcUrls, nonce);
+      }
+      return isNonceUsed(clientFor(domain), network, nonce);
+    },
+    /** EVM head block. Solana messages carry no expiry we can check this way. */
+    destinationBlock: async (domain: number): Promise<bigint> => {
+      if (chainByDomain(network, domain)?.kind === "solana") return 0n;
+      return clientFor(domain).getBlockNumber();
+    },
   };
 }
 

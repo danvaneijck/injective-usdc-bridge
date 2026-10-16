@@ -2,15 +2,20 @@ import type { Address } from "viem";
 import type { Network } from "./constants.js";
 
 /**
- * An RPC endpoint the indexer may use for eth_getLogs, with the largest block
- * span proven to return complete results. Several public endpoints silently
- * TRUNCATE an oversized range with HTTP 200 (arb1.arbitrum.io above ~5k blocks,
- * the Injective sentry above ~8k), so a span is only listed once it passed a
- * split-consistency check: whole window == sum of its two halves.
+ * An RPC endpoint the indexer may use for eth_getLogs, with its block span.
+ * Several public endpoints silently TRUNCATE an oversized range with HTTP 200
+ * (arb1.arbitrum.io above ~5k blocks, the Injective sentry above ~8k), so the
+ * August spans passed a split-consistency check (whole window == sum of its
+ * halves). Spans added 2026-10-16 for the newer chains are the largest range
+ * each endpoint accepted, kept at or below where it started erroring. Limits
+ * change without notice (Base Tenderly went from 500k to ~1k), so the indexer
+ * falls through to the next endpoint instead of trusting any one.
  */
 export interface LogRpc {
   url: string;
   span: number;
+  /** Pause between requests for endpoints that rate-limit hard (HyperEVM). */
+  minIntervalMs?: number;
 }
 
 interface ChainBase {
@@ -32,6 +37,11 @@ export interface EvmChain extends ChainBase {
   chainId: number;
   usdc: Address;
   nativeSymbol: string;
+  /**
+   * Approximate, for polling cadence only (measured 2026-10-16; Avalanche had
+   * halved and Linea averaged 9.4 s). Anything that needs a block for a time
+   * must measure the chain, not trust this.
+   */
   blockTimeMs: number;
   /** getLogs endpoints with calibrated spans. Empty = not yet calibrated. */
   logRpcs: readonly LogRpc[];
@@ -65,7 +75,7 @@ const MAINNET: readonly Chain[] = [
     chainId: 1776,
     usdc: "0xa00C59fF5a080D2b954d0c75e46E22a0c371235a",
     nativeSymbol: "INJ",
-    blockTimeMs: 700,
+    blockTimeMs: 600,
     rpcUrls: [
       "https://sentry.evm-rpc.injective.network",
       "https://injective.rpc.thirdweb.com",
@@ -110,9 +120,11 @@ const MAINNET: readonly Chain[] = [
       "https://base-rpc.publicnode.com",
       "https://base.gateway.tenderly.co",
     ],
+    // 2026-10-16: Tenderly's Base gateway now rejects ranges above ~1k blocks
+    // (was 500k in August) and mainnet.base.org rate-limits getLogs.
     logRpcs: [
-      { url: "https://base.gateway.tenderly.co", span: 500_000 },
-      { url: "https://mainnet.base.org", span: 2_000 },
+      { url: "https://base-rpc.publicnode.com", span: 5_000 },
+      { url: "https://base.gateway.tenderly.co", span: 1_000 },
     ],
     explorerTx: "https://basescan.org/tx/{hash}",
     fastSource: true,
@@ -125,7 +137,7 @@ const MAINNET: readonly Chain[] = [
     chainId: 42161,
     usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     nativeSymbol: "ETH",
-    blockTimeMs: 250,
+    blockTimeMs: 280,
     rpcUrls: [
       "https://arb1.arbitrum.io/rpc",
       "https://arbitrum-one-rpc.publicnode.com",
@@ -167,7 +179,7 @@ const MAINNET: readonly Chain[] = [
     chainId: 137,
     usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
     nativeSymbol: "POL",
-    blockTimeMs: 2_000,
+    blockTimeMs: 1_500,
     rpcUrls: [
       "https://polygon-bor-rpc.publicnode.com",
       "https://polygon.drpc.org",
@@ -186,7 +198,7 @@ const MAINNET: readonly Chain[] = [
     chainId: 43114,
     usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
     nativeSymbol: "AVAX",
-    blockTimeMs: 2_000,
+    blockTimeMs: 950,
     rpcUrls: [
       "https://api.avax.network/ext/bc/C/rpc",
       "https://avalanche-c-chain-rpc.publicnode.com",
@@ -226,7 +238,7 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "ETH",
     blockTimeMs: 1_000,
     rpcUrls: ["https://mainnet.unichain.org"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://mainnet.unichain.org", span: 5_000 }],
     explorerTx: "https://uniscan.xyz/tx/{hash}",
     fastSource: true,
     forwarding: true,
@@ -238,9 +250,9 @@ const MAINNET: readonly Chain[] = [
     chainId: 146,
     usdc: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",
     nativeSymbol: "S",
-    blockTimeMs: 1_000,
+    blockTimeMs: 1_500,
     rpcUrls: ["https://rpc.soniclabs.com", "https://sonic.drpc.org"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://rpc.soniclabs.com", span: 5_000 }],
     explorerTx: "https://sonicscan.org/tx/{hash}",
     fastSource: false,
     forwarding: true,
@@ -256,7 +268,7 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "ETH",
     blockTimeMs: 2_000,
     rpcUrls: ["https://worldchain-mainnet.g.alchemy.com/public"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://worldchain-mainnet.g.alchemy.com/public", span: 100 }],
     explorerTx: "https://worldscan.org/tx/{hash}",
     fastSource: true,
     forwarding: true,
@@ -270,7 +282,9 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "HYPE",
     blockTimeMs: 1_000,
     rpcUrls: ["https://rpc.hyperliquid.xyz/evm"],
-    logRpcs: [],
+    // Public endpoint rate-limits at well under 1 req/s; it reports that as
+    // "rate limited" or "Request exceeds defined limit". 200 blocks works at any age.
+    logRpcs: [{ url: "https://rpc.hyperliquid.xyz/evm", span: 200, minIntervalMs: 1_500 }],
     explorerTx: "https://hyperevmscan.io/tx/{hash}",
     fastSource: false,
     forwarding: true,
@@ -282,9 +296,9 @@ const MAINNET: readonly Chain[] = [
     chainId: 143,
     usdc: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
     nativeSymbol: "MON",
-    blockTimeMs: 400,
+    blockTimeMs: 300,
     rpcUrls: ["https://rpc.monad.xyz"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://rpc.monad.xyz", span: 100 }],
     explorerTx: "https://monadscan.com/tx/{hash}",
     fastSource: false,
     forwarding: true,
@@ -296,9 +310,9 @@ const MAINNET: readonly Chain[] = [
     chainId: 1329,
     usdc: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
     nativeSymbol: "SEI",
-    blockTimeMs: 400,
+    blockTimeMs: 450,
     rpcUrls: ["https://evm-rpc.sei-apis.com"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://evm-rpc.sei-apis.com", span: 2_000 }],
     explorerTx: "https://seiscan.io/tx/{hash}",
     fastSource: false,
     forwarding: true,
@@ -312,7 +326,7 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "XPL",
     blockTimeMs: 1_000,
     rpcUrls: ["https://rpc.plasma.to"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://rpc.plasma.to", span: 5_000 }],
     explorerTx: "https://plasmascan.to/tx/{hash}",
     fastSource: false,
     forwarding: false,
@@ -326,7 +340,7 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "ETH",
     blockTimeMs: 1_000,
     rpcUrls: ["https://rpc-gel.inkonchain.com"],
-    logRpcs: [],
+    logRpcs: [{ url: "https://rpc-gel.inkonchain.com", span: 1_000 }],
     explorerTx: "https://explorer.inkonchain.com/tx/{hash}",
     fastSource: true,
     forwarding: true,

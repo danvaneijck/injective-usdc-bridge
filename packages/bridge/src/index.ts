@@ -9,3 +9,4 @@ export * from "./quote.js";
 export * from "./burn.js";
 export * from "./status.js";
 export * from "./rpc.js";
+export * from "./solana.js";

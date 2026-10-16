@@ -76,7 +76,7 @@ export class IrisClient {
     this.baseUrl = (opts.baseUrl ?? IRIS_URLS[opts.network ?? "mainnet"]).replace(/\/$/, "");
     this.fetchImpl = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.headers = { accept: "application/json" };
-    if (typeof window === "undefined") {
+    if (!("window" in globalThis)) {
       this.headers["user-agent"] = opts.userAgent ?? "injective-usdc-bridge";
     }
   }

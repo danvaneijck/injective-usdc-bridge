@@ -41,10 +41,11 @@ every burn from chain data whether or not that hint arrives.
 | Deposit (X to Injective) | Injective | bridge-service. Circle does not forward to Injective (`Destination domain not supported for forwarding`) |
 
 Forwarding is asked for with hook data `cctp-forward` v0 (`FORWARD_HOOK_DATA`).
-Iris then returns two undocumented fields on the message, `forwardState`
-(`CONFIRMED` once the mint landed) and `forwardTxHash` (the destination mint),
-which `resolveTransfer` passes through for display. Delivery is still decided
-by `usedNonces`.
+Iris then returns two undocumented fields on the message, `forwardState` and
+`forwardTxHash` (the destination mint), which `resolveTransfer` passes through
+for display. `forwardState` read `CONFIRMED` seconds after the mint and
+`COMPLETE` 15 minutes later, so neither value is treated as meaningful.
+Delivery is still decided by `usedNonces`.
 Circle will not forward a burn with a `destinationCaller` set, which is one more
 reason every burn here is permissionless.
 
@@ -154,22 +155,41 @@ conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
 
 ## bridge-service (phase 1)
 
-- **Indexer**: per chain cursor; `DepositForBurn` from `TokenMessengerV2`. Keeps
-  every burn on Injective and every burn elsewhere whose `destinationDomain` is
-  29 (it is not an indexed topic, so filter after decode). Confirmations lag
-  and a reorg margin per chain.
-- **Poller**: Iris for `attesting` rows, kept well under Iris' 35 req/s limit
-  (going over blocks the IP for 5 minutes), then destination `usedNonces`.
-- **Relayer**: mints deposits on Injective from a hot key with a small INJ
-  float and alerts below threshold. Backstop mints for withdrawals as above.
-- **API**: `GET /v1/transfers?address=` (0x or inj1; depositor or recipient),
-  `GET /v1/transfers/:domain/:tx`, `POST /v1/transfers/hint`, `GET /v1/health`
-  (per-lane Iris lag, relayer float).
-- **Storage**: Postgres. It is reconstructible from chain data, so the cursor
-  can be rewound to rebuild it.
-- **Shadow first**: run it against live traffic while v1 is still the UI. It
-  will also find and mint v1 strands into Injective, since it does not care
-  which UI made the burn.
+`service/`, one Node process. `MODE=shadow` indexes and tracks but never
+sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
+
+- **Indexer** (`indexer.ts`): per chain cursor; `DepositForBurn` from
+  `TokenMessengerV2`. Keeps every burn on Injective and every burn elsewhere
+  whose `destinationDomain` is 29 (not an indexed topic, so filtered after
+  decode). Each window is fetched entirely from one endpoint, chunked by that
+  endpoint's proven span; on any failure the whole window is refetched from the
+  next endpoint, never stitched across endpoints.
+- **Classifier** (`classify.ts`): `plain`, `forward`, `gas_drop` (our
+  receiver), `legacy_gas_drop` (v1 receivers v4 `0xbe7a…54b4` and v3
+  `0xCeD8…7Ec3`), `pinned_other` (someone else's caller; never touched).
+- **Tracker** (`tracker.ts`): Iris then destination `usedNonces` (EVM) or the
+  `used_nonce` PDA (Solana). Pairs several burns in one tx with their own
+  messages. Backoff follows each source chain's normal attestation time.
+  Expired messages get one `reattest` per 10 minutes.
+- **Relayer** (`relayer.ts`): deposits into Injective only, after a grace
+  period (15 s plain, 120 s for v1-pinned burns, which v1's backend relays
+  itself). Re-reads `usedNonces`, simulates, then sends with the 1 gwei tip
+  floor. A revert after someone else's mint is recorded as delivered, not as
+  an error. 8 attempts with backoff, then it logs for a human.
+- **API** (`api.ts`, Hono): `GET /v1/transfers?address=` (0x or inj1;
+  depositor or recipient), `GET /v1/transfers/:domain/:tx`,
+  `POST /v1/transfers/hint`, `GET /v1/health` (per-lane indexer and Iris lag,
+  relayer balance; 503 when not ok). Every `ready` transfer carries a `claim`
+  call `{chainId, to, data}` a UI can send as-is.
+- **Storage**: SQLite (WAL), not Postgres: one writer process, and every row
+  can be rebuilt from chain data by rewinding a cursor. Tests run against the
+  real database instead of mocks.
+- **Shadow first**: run it against live traffic while v1 is still the UI. In
+  relay mode it also completes v1 deposits, since it does not care which UI
+  made the burn.
+- **Not yet**: withdrawal backstop mints on peer chains (Plasma, or when
+  Circle's forward stalls), Solana-source burns, alerts beyond the health
+  endpoint.
 
 ## Widget (phase 2)
 
@@ -190,7 +210,7 @@ conservation fuzz (every minted unit is paid, accrued as a fee, or escrowed).
 | --- | --- |
 | 0 | **Done**: core package, verified registry, BridgeReceiver, 30 TS + 27 Foundry tests. |
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
-| 1 | bridge-service in shadow mode, then relaying. |
+| 1 | **Built.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Next: deploy in shadow, then `MODE=relay` with a funded relayer key. |
 | 2 | Widget, integrated in Choice v2 (viem, easiest), then the launchpad (replacing the jumper.xyz link). |
 | 3 | Solana legs (port v1 `solanaCctp.ts`; forwarding needs the recipient's USDC ATA and the extended hook for ATA creation). HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |

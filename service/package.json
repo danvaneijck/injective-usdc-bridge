@@ -1,0 +1,31 @@
+{
+  "name": "injective-usdc-bridge-service",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Indexes CCTP burns to and from Injective, tracks them to delivery, mints deposits, serves the transfer API.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "completeness": "tsx scripts/completeness.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@scure/base": "^1.2.6",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.13",
+    "injective-usdc-bridge": "*",
+    "tsx": "^4.20.0",
+    "viem": "^2.57.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
