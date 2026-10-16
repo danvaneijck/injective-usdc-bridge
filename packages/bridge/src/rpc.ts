@@ -95,12 +95,17 @@ export function createChainReader(
  * EIP-1559 overrides for chains whose RPC reports a zero tip (Injective).
  * Returns undefined elsewhere so the wallet prices the tx itself. Each read
  * fails soft: a transient RPC blip must not drop the floor.
+ *
+ * `tipFloorWei` replaces the chain's floor. The floor exists for MetaMask
+ * (it discards a 0 tip and misprices); a backend signer can pass 0n and pay
+ * base fee only, which is how most Injective mints land (0.16 gwei).
  */
 export async function feeOverrides(
   client: PublicClient,
   chain: EvmChain,
+  tipFloorWei?: bigint,
 ): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined> {
-  const floor = chain.minPriorityFeeWei;
+  const floor = tipFloorWei ?? chain.minPriorityFeeWei;
   if (floor === undefined) return undefined;
   const [block, tip] = await Promise.all([
     client.getBlock({ blockTag: "latest" }).catch(() => null),

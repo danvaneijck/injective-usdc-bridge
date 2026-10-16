@@ -26,8 +26,15 @@ export interface ServiceConfig {
   /** Relayer INJ balance below which /health reports low. */
   relayerLowInj: number;
   irisRps: number;
-  /** Per-domain RPC lists placed ahead of the registry's. */
+  /** Per-domain RPC lists placed ahead of the registry's, for reads and sends. */
   rpcOverrides: Record<number, string[]>;
+  /**
+   * Per-domain eth_getLogs endpoints with their spans, ahead of the registry's.
+   * Separate from rpcOverrides on purpose: a pruning node (the Choice box's
+   * local Injective node) answers old getLogs ranges with an EMPTY result, not
+   * an error, which would silently drop burns during a backfill.
+   */
+  logRpcOverrides: Record<number, { url: string; span: number }[]>;
 }
 
 /** Mainnet v1 GasDropReceiver v4 (live) and v3 (older burns may be pinned to it). */
@@ -56,11 +63,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     if (!evmKeys.includes(k)) throw new Error(`CHAINS has unknown EVM chain ${k}`);
   }
 
-  // RPC_<DOMAIN>=url1,url2  e.g. RPC_29=https://my-node
+  // RPC_<DOMAIN>=url1,url2  e.g. RPC_29=http://172.30.0.1:8545
+  // LOG_RPC_<DOMAIN>=url@span,url@span  e.g. LOG_RPC_19=https://keyed-hyperevm@1000
   const rpcOverrides: Record<number, string[]> = {};
+  const logRpcOverrides: Record<number, { url: string; span: number }[]> = {};
   for (const [k, v] of Object.entries(env)) {
-    const m = /^RPC_(\d+)$/.exec(k);
-    if (m && v) rpcOverrides[Number(m[1])] = v.split(",").map((s) => s.trim());
+    if (!v) continue;
+    const rpc = /^RPC_(\d+)$/.exec(k);
+    if (rpc) rpcOverrides[Number(rpc[1])] = v.split(",").map((s) => s.trim());
+    const logs = /^LOG_RPC_(\d+)$/.exec(k);
+    if (logs) {
+      logRpcOverrides[Number(logs[1])] = v.split(",").map((entry) => {
+        const at = entry.lastIndexOf("@");
+        const span = at > 0 ? Number(entry.slice(at + 1)) : NaN;
+        if (!Number.isInteger(span) || span <= 0) throw new Error(`${k}: "${entry}" must be url@span`);
+        return { url: entry.slice(0, at).trim(), span };
+      });
+    }
   }
 
   const legacy = env.LEGACY_RECEIVERS
@@ -84,6 +103,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     relayerLowInj: Number(env.RELAYER_LOW_INJ ?? 0.2),
     irisRps: Number(env.IRIS_RPS ?? 5),
     rpcOverrides,
+    logRpcOverrides,
   };
   if (config.mode === "relay" && !config.relayerKeyFile) {
     throw new Error("MODE=relay needs RELAYER_KEY_FILE");

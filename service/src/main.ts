@@ -44,19 +44,20 @@ if (config.relayerKeyFile) {
   });
 }
 
-const indexers = config.chainKeys.map(
-  (key) =>
-    new ChainIndexer({
-      chain: chainByKey(config.network, key) as EvmChain,
-      network: config.network,
-      store,
-      ctx,
-      log,
-      now,
-      startLookbackSec: config.startLookbackSec,
-      rpcOverrides: config.rpcOverrides[chainByKey(config.network, key)!.domain],
-    }),
-);
+const indexers = config.chainKeys.map((key) => {
+  const chain = chainByKey(config.network, key) as EvmChain;
+  return new ChainIndexer({
+    chain,
+    network: config.network,
+    store,
+    ctx,
+    log,
+    now,
+    startLookbackSec: config.startLookbackSec,
+    rpcOverrides: config.rpcOverrides[chain.domain],
+    logOverrides: config.logRpcOverrides[chain.domain],
+  });
+});
 
 const tracker = new Tracker({
   store,

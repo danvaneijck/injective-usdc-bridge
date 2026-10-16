@@ -40,8 +40,8 @@ export function confirmationsFor(chain: EvmChain): number {
   return 4;
 }
 
-export function logEndpoints(chain: EvmChain, overrides: readonly string[] = []): LogEndpoint[] {
-  const out: LogEndpoint[] = overrides.map((url) => ({ url, span: DEFAULT_SPAN }));
+export function logEndpoints(chain: EvmChain, overrides: readonly LogEndpoint[] = []): LogEndpoint[] {
+  const out: LogEndpoint[] = overrides.map((e) => ({ ...e }));
   for (const e of chain.logRpcs) out.push({ url: e.url, span: e.span, minIntervalMs: e.minIntervalMs });
   for (const url of chain.rpcUrls) {
     if (!out.some((e) => e.url === url)) out.push({ url, span: DEFAULT_SPAN });
@@ -57,7 +57,10 @@ export interface IndexerOptions {
   log: Logger;
   now: () => number;
   startLookbackSec: number;
+  /** Read endpoints (head, blocks) ahead of the registry's. Never used for logs. */
   rpcOverrides?: readonly string[];
+  /** eth_getLogs endpoints with spans, ahead of the registry's. */
+  logOverrides?: readonly LogEndpoint[];
   /** Max blocks covered per tick, as a multiple of the primary endpoint's span. */
   maxSpansPerTick?: number;
   /** Test seam. */
@@ -75,7 +78,7 @@ export class ChainIndexer {
 
   constructor(private readonly o: IndexerOptions) {
     this.chain = o.chain;
-    this.endpoints = logEndpoints(o.chain, o.rpcOverrides);
+    this.endpoints = logEndpoints(o.chain, o.logOverrides);
     this.head = o.headClient ?? publicClientFor(o.chain, [...(o.rpcOverrides ?? []), ...o.chain.rpcUrls]);
     this.clientForUrl =
       o.clientForUrl ?? ((url) => createPublicClient({ transport: http(url, { timeout: 20_000, retryCount: 1 }) }));

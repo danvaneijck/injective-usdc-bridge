@@ -125,7 +125,9 @@ export class Relayer {
 
     try {
       const gas = await this.d.client.estimateGas({ account: account.address, to: call.to, data: call.data });
-      const fees = await feeOverrides(this.d.client, this.d.injective);
+      // No tip: the 1 gwei floor is a MetaMask workaround, and base fee alone
+      // lands (measured 2026-10-16: ~560k gas at 0.16 gwei ≈ 0.00009 INJ a mint).
+      const fees = await feeOverrides(this.d.client, this.d.injective, 0n);
       const hash = await this.d.wallet.sendTransaction({
         account,
         chain: null,

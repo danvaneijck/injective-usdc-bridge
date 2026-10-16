@@ -155,8 +155,8 @@ describe("ChainIndexer", () => {
   });
 
   it("orders log endpoints: overrides, calibrated, then plain RPCs", () => {
-    const eps = logEndpoints(base, ["https://mine"]);
-    expect(eps[0]).toEqual({ url: "https://mine", span: 1_000 });
+    const eps = logEndpoints(base, [{ url: "https://mine", span: 20_000 }]);
+    expect(eps[0]).toEqual({ url: "https://mine", span: 20_000 });
     expect(eps[1]).toMatchObject({ url: "https://base-rpc.publicnode.com", span: 5_000 });
     expect(eps.filter((e) => e.url === "https://base-rpc.publicnode.com")).toHaveLength(1);
     expect(eps.at(-1)).toEqual({ url: "https://mainnet.base.org", span: 1_000 });
