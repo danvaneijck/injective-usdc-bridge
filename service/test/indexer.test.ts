@@ -50,13 +50,21 @@ describe("classify", () => {
   });
 });
 
-function fakeClient(opts: { head: bigint; logs: ReturnType<typeof burnLog>[]; failGetLogs?: boolean; calls?: string[] }) {
+function fakeClient(opts: {
+  head: bigint;
+  logs: ReturnType<typeof burnLog>[];
+  failGetLogs?: boolean;
+  /** Fail every getLogs that starts at or after this block (a rate limit kicking in). */
+  failFrom?: bigint;
+  calls?: string[];
+}) {
   return {
     getBlockNumber: async () => opts.head,
     getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ timestamp: 1_700_000_000n + blockNumber }),
     getLogs: async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
       opts.calls?.push(`${fromBlock}-${toBlock}`);
       if (opts.failGetLogs) throw new Error("boom");
+      if (opts.failFrom !== undefined && fromBlock >= opts.failFrom) throw new Error("rate limited");
       return opts.logs.filter((l) => l.blockNumber >= fromBlock && l.blockNumber <= toBlock);
     },
   } as unknown as PublicClient;
@@ -133,7 +141,43 @@ describe("ChainIndexer", () => {
     const r = await ix.tick();
     expect(callsA).toEqual(["1-2500"]);
     expect(callsB).toEqual(["1-1000", "1001-2000", "2001-2500"]);
-    expect(r).toMatchObject({ added: 1, endpoint: "https://b" });
+    expect(r).toMatchObject({ added: 1, endpoint: "https://b", partial: false });
+  });
+
+  it("keeps the chunks an endpoint finished before it failed, without stitching in another endpoint", async () => {
+    const store = memStore();
+    store.setCursor("base", 0, 0, 0);
+    const callsA: string[] = [];
+    const callsB: string[] = [];
+    const head = fakeClient({ head: 2_504n, logs: [] });
+    const a = fakeClient({ head: 2_504n, logs: [burnLog({ blockNumber: 500n })], failFrom: 1_001n, calls: callsA });
+    const b = fakeClient({ head: 2_504n, logs: [], calls: callsB });
+    const ix = new ChainIndexer({
+      chain: { ...base, logRpcs: [{ url: "https://a", span: 1_000 }, { url: "https://b", span: 1_000 }], rpcUrls: [] },
+      network: "mainnet",
+      store,
+      ctx,
+      log: silentLogger,
+      now: new Clock().now,
+      startLookbackSec: 0,
+      clientForUrl: (url) => (url === "https://a" ? a : b),
+      headClient: head,
+    });
+    const r = await ix.tick();
+    expect(callsA).toEqual(["1-1000", "1001-2000"]);
+    expect(callsB).toEqual([]);
+    expect(r).toMatchObject({ from: 1, to: 1_000, added: 1, endpoint: "https://a", partial: true });
+    expect(store.getCursor("base")).toBe(1_000);
+  });
+
+  it("polls a rate-limited chain no faster than its request spacing allows", () => {
+    const opts = { network: "mainnet" as const, store: memStore(), ctx, log: silentLogger, now: new Clock().now, startLookbackSec: 0 };
+    const hyperevm = chainByKey("mainnet", "hyperevm") as EvmChain;
+    expect(new ChainIndexer({ ...opts, chain: hyperevm }).idleMs).toBe(35_000);
+    expect(new ChainIndexer({ ...opts, chain: base }).idleMs).toBe(10_000);
+    // A keyed endpoint without a spacing goes back to the block-time pace.
+    const keyed = new ChainIndexer({ ...opts, chain: hyperevm, logOverrides: [{ url: "https://keyed", span: 1_000 }] });
+    expect(keyed.idleMs).toBe(5_000);
   });
 
   it("ingestTx treats a not-yet-mined hash as nothing found, not an error", async () => {

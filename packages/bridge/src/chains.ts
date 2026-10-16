@@ -14,7 +14,10 @@ import type { Network } from "./constants.js";
 export interface LogRpc {
   url: string;
   span: number;
-  /** Pause between requests for endpoints that rate-limit hard (HyperEVM). */
+  /**
+   * Pause between requests for endpoints that rate-limit hard (HyperEVM). An
+   * indexer should also poll such a chain less often, since head reads count.
+   */
   minIntervalMs?: number;
 }
 
@@ -282,9 +285,11 @@ const MAINNET: readonly Chain[] = [
     nativeSymbol: "HYPE",
     blockTimeMs: 1_000,
     rpcUrls: ["https://rpc.hyperliquid.xyz/evm"],
-    // Public endpoint rate-limits at well under 1 req/s; it reports that as
-    // "rate limited" or "Request exceeds defined limit". 200 blocks works at any age.
-    logRpcs: [{ url: "https://rpc.hyperliquid.xyz/evm", span: 200, minIntervalMs: 1_500 }],
+    // Public endpoint allows ~7 requests per IP, then refuses everything (every
+    // method, not just getLogs) for ~25 s: about 10 a minute (measured 2026-10-16
+    // from two IPs). It says "rate limited" or "Request exceeds defined limit".
+    // 200 blocks works at any age.
+    logRpcs: [{ url: "https://rpc.hyperliquid.xyz/evm", span: 200, minIntervalMs: 7_000 }],
     explorerTx: "https://hyperevmscan.io/tx/{hash}",
     fastSource: false,
     forwarding: true,

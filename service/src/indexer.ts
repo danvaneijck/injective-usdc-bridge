@@ -84,8 +84,21 @@ export class ChainIndexer {
       o.clientForUrl ?? ((url) => createPublicClient({ transport: http(url, { timeout: 20_000, retryCount: 1 }) }));
   }
 
-  /** Scan the next window. Returns null when already at the target block. */
-  async tick(): Promise<{ from: number; to: number; added: number; endpoint: string } | null> {
+  /**
+   * Pause between ticks once caught up. A rate-limited primary endpoint sets
+   * the pace (HyperEVM: 35 s), because head reads spend the same budget.
+   */
+  get idleMs(): number {
+    const byBlocks = Math.min(Math.max(this.chain.blockTimeMs * 5, 2_000), 15_000);
+    return Math.max(byBlocks, (this.endpoints[0]?.minIntervalMs ?? 0) * 5);
+  }
+
+  /**
+   * Scan the next window. Returns null when already at the target block, and
+   * `partial` when an endpoint failed partway and only its finished chunks
+   * were kept.
+   */
+  async tick(): Promise<{ from: number; to: number; added: number; endpoint: string; partial: boolean } | null> {
     const head = Number(await this.head.getBlockNumber());
     this.lastHead = head;
     const target = head - confirmationsFor(this.chain);
@@ -99,12 +112,12 @@ export class ChainIndexer {
     const from = cursor + 1;
     const to = Math.min(target, cursor + primarySpan * (this.o.maxSpansPerTick ?? 20));
 
-    const { logs, endpoint } = await this.fetchWindow(from, to);
+    const { logs, endpoint, to: scanned } = await this.fetchWindow(from, to);
     const rows = await this.toRows(logs);
     const added = this.o.store.insertTransfers(rows, this.o.now());
-    this.o.store.setCursor(this.chain.key, to, head, this.o.now());
-    if (added > 0) this.o.log.info("burns indexed", { chain: this.chain.key, from, to, added });
-    return { from, to, added, endpoint };
+    this.o.store.setCursor(this.chain.key, scanned, head, this.o.now());
+    if (added > 0) this.o.log.info("burns indexed", { chain: this.chain.key, from, to: scanned, added });
+    return { from, to: scanned, added, endpoint, partial: scanned < to };
   }
 
   /**
@@ -134,17 +147,21 @@ export class ChainIndexer {
   }
 
   /**
-   * Fetch [from, to] entirely from one endpoint, chunked by that endpoint's
-   * proven span. A failure anywhere drops the partial result and retries the
-   * whole window on the next endpoint, so results are never stitched from
-   * endpoints with different truncation behaviour.
+   * Fetch [from, to] from one endpoint, chunked by that endpoint's proven
+   * span. Every block range that is kept comes wholly from one endpoint, so
+   * results are never stitched from endpoints with different truncation
+   * behaviour. An endpoint that fails partway keeps the chunks it finished
+   * (returned with a smaller `to`): a rate-limited endpoint that throws the
+   * window away would retry the same window forever. Only an endpoint that
+   * finished nothing hands the window to the next one.
    */
-  private async fetchWindow(from: number, to: number): Promise<{ logs: Log[]; endpoint: string }> {
+  private async fetchWindow(from: number, to: number): Promise<{ logs: Log[]; endpoint: string; to: number }> {
     let lastError: unknown;
     for (const ep of this.endpoints) {
+      const logs: Log[] = [];
+      let done = from - 1;
       try {
         const client = this.client(ep.url);
-        const logs: Log[] = [];
         for (let a = from; a <= to; a += ep.span) {
           if (ep.minIntervalMs && a > from) await new Promise((r) => setTimeout(r, ep.minIntervalMs));
           const b = Math.min(to, a + ep.span - 1);
@@ -155,8 +172,9 @@ export class ChainIndexer {
             toBlock: BigInt(b),
           });
           logs.push(...(chunk as Log[]));
+          done = b;
         }
-        return { logs, endpoint: ep.url };
+        return { logs, endpoint: ep.url, to };
       } catch (e) {
         lastError = e;
         this.o.log.warn("getLogs endpoint failed", {
@@ -164,8 +182,10 @@ export class ChainIndexer {
           url: ep.url,
           from,
           to,
+          kept: done >= from ? done : null,
           error: (e as Error).message.split("\n")[0],
         });
+        if (done >= from) return { logs, endpoint: ep.url, to: done };
       }
     }
     throw lastError ?? new Error(`No log endpoints for ${this.chain.key}`);

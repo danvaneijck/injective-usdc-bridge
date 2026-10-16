@@ -142,8 +142,17 @@ log.info("starting", {
 });
 
 const loops = [
+  // A partial window means the endpoint pushed back: wait the idle pause
+  // before the next one instead of going straight back.
   ...indexers.map((ix) =>
-    loop(`index:${ix.chain.key}`, async () => (await ix.tick()) !== null, Math.min(Math.max(ix.chain.blockTimeMs * 5, 2_000), 15_000)),
+    loop(
+      `index:${ix.chain.key}`,
+      async () => {
+        const r = await ix.tick();
+        return r !== null && !r.partial;
+      },
+      ix.idleMs,
+    ),
   ),
   loop("track", async () => (await tracker.tick()) > 0, 1_000),
   loop("relay", async () => (await relayer.tick()) > 0, 3_000),
