@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS transfers (
 CREATE INDEX IF NOT EXISTS transfers_due ON transfers (phase, next_check_at);
 CREATE INDEX IF NOT EXISTS transfers_depositor ON transfers (depositor, block_number);
 CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers (recipient, block_number);
+CREATE INDEX IF NOT EXISTS transfers_tx ON transfers (tx_hash);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -245,6 +246,11 @@ export class Store {
     return this.db
       .prepare("SELECT * FROM transfers WHERE src_domain = ? AND tx_hash = ? ORDER BY log_index")
       .all(srcDomain, txKey(txHash)) as TransferRow[];
+  }
+
+  /** A source tx on whichever chain it was sent from, for lookups that know only the hash. */
+  byTxAnyDomain(txHash: string): TransferRow[] {
+    return this.db.prepare("SELECT * FROM transfers WHERE tx_hash = ? ORDER BY src_domain, log_index").all(txKey(txHash)) as TransferRow[];
   }
 
   /** Open transfers whose next check is due, grouped by source tx. */

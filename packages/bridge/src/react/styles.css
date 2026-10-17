@@ -1028,6 +1028,19 @@ button.iub-chain:active {
   width: 16px;
   color: var(--iub-accent);
 }
+.iub-chains-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.iub-chains-balance {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .iub-chip {
   display: inline-flex;
   align-items: center;
@@ -1462,7 +1475,40 @@ button.iub-chain:active {
   transform: translateX(2px);
   color: var(--iub-text);
 }
+.iub-notify {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 13px;
+}
+.iub-notify svg {
+  flex: none;
+}
+.iub-finder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.iub-finder .iub-search {
+  margin: 0;
+}
+.iub-finder .iub-link {
+  flex: none;
+}
+.iub-lookup-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 0;
+  font-size: 13px;
+}
+.iub-lookup-head .iub-link {
+  margin-left: auto;
+}
 .iub-empty {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 44px 24px 40px;

@@ -110,6 +110,64 @@ describe("Tracker", () => {
     expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "delivered", delivered_at: null });
   });
 
+  it("finds the mint nobody reported, searching only since it last saw the transfer undelivered", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    insertBurn(store, clock, { destinationDomain: 3 }, 29);
+    const attested = { [TX]: [attestedMessage({ src: 29, dst: 3, nonce: NONCE, mintRecipient: addressToBytes32(USER), amount: 10_000_000n })] };
+    const claim = `0x${"c1".repeat(32)}`;
+    const searches: { dst: number; nonce: string; since: number }[] = [];
+    let minted = false;
+    const t = new Tracker({
+      store,
+      iris: fakeIris(attested),
+      irisLimiter: noLimit,
+      network: "mainnet",
+      isNonceUsed: async () => minted,
+      destinationBlock: async () => 0n,
+      txTime: async (_d, hash) => (hash === claim ? clock.t - 20_000 : null),
+      findMintTx: async (dst, nonce, since) => {
+        searches.push({ dst, nonce, since });
+        return claim;
+      },
+      log: silentLogger,
+      now: clock.now,
+    });
+    clock.advance(60_000);
+    await t.tick();
+    const lastCheck = clock.t;
+    expect(store.byTx(29, TX)[0]?.phase).toBe("ready");
+
+    // Claimed by its owner hours later: no forward tx, not our relayer.
+    minted = true;
+    clock.advance(3 * 3_600_000);
+    await t.checkTx(29, TX);
+    expect(searches).toEqual([{ dst: 3, nonce: NONCE, since: lastCheck }]);
+    expect(store.byTx(29, TX)[0]).toMatchObject({ phase: "delivered", mint_tx: claim, delivered_at: clock.t - 20_000 });
+  });
+
+  it("does not search for a mint it never watched for", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    insertBurn(store, clock);
+    const findMintTx = vi.fn(async () => null);
+    const t = new Tracker({
+      store,
+      iris: fakeIris({ [TX]: [attestedMessage({ src: 6, dst: 29, nonce: NONCE, mintRecipient: addressToBytes32(USER), amount: 10_000_000n })] }),
+      irisLimiter: noLimit,
+      network: "mainnet",
+      isNonceUsed: async () => true,
+      destinationBlock: async () => 0n,
+      findMintTx,
+      log: silentLogger,
+      now: clock.now,
+    });
+    clock.advance(2 * 3_600_000);
+    await t.tick();
+    expect(findMintTx).not.toHaveBeenCalled();
+    expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "delivered", mint_tx: null, delivered_at: null });
+  });
+
   it("pairs several burns in one tx with their own messages", async () => {
     const store = memStore();
     const clock = new Clock();

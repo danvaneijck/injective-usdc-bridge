@@ -9,7 +9,11 @@
  *   WALLET=0x... node scripts/smoke.mjs
  *
  * NO_GAS_ON=<chain name> checks the missing-gas warning on a chain where
- * WALLET holds none of the gas token (deposits start on Base).
+ * WALLET holds none of the gas token (deposits start on Base, where WALLET
+ * must hold some USDC so the form stays there).
+ *
+ * FIND_TX=<hash> looks a burn up from Activity by its hash alone, then WALLET
+ * by address, with no wallet connected.
  *
  * REFUND=<payer>:<sig>[,<sig>] also checks the Solana deposit refund: the
  * signatures are burns from Solana older than 5 days whose deposits are still
@@ -30,6 +34,8 @@ const TRACK = process.env.TRACK; // "<domain>/<txHash>" to open a tracking page
 const REFUND = process.env.REFUND;
 /** A chain where WALLET holds no gas token, e.g. "Base": the form must warn before signing. */
 const NO_GAS_ON = process.env.NO_GAS_ON;
+/** A burn's hash, any chain, to look up from Activity without a wallet. */
+const FIND_TX = process.env.FIND_TX;
 const OUT = process.env.OUT ?? "./smoke-out";
 if (!WALLET) throw new Error("WALLET=0x... is required");
 mkdirSync(OUT, { recursive: true });
@@ -123,12 +129,19 @@ if (NO_GAS_ON) {
   });
 }
 
-await check("picks a chain from the sheet, the popular ones first", async () => {
+await check("picks a chain from the sheet: the wallet's USDC first, then the popular ones", async () => {
   await page.getByRole("button", { name: /^Base/ }).first().click();
   const sheet = page.getByRole("dialog", { name: "Bridge from" });
   await sheet.waitFor();
+  // WALLET holds USDC somewhere (Base, for the rescue wallet): its balance shows.
+  await sheet.locator(".iub-chains-balance").first().waitFor({ timeout: 15_000 });
   const rows = await sheet.locator(".iub-chains button").allInnerTexts();
-  if (!rows[0]?.startsWith("Solana") || !rows[1]?.startsWith("HyperEVM")) throw new Error(`list starts ${JSON.stringify(rows.slice(0, 3))}`);
+  const held = rows.map((r) => /[\d.]+ USDC/.test(r));
+  const firstEmpty = held.indexOf(false);
+  if (held.slice(firstEmpty).some(Boolean)) throw new Error(`a chain with USDC is listed after one without: ${JSON.stringify(rows)}`);
+  const rest = rows.slice(firstEmpty).map((r) => r.split("\n")[0]);
+  const popular = ["Solana", "HyperEVM"].filter((name) => rest.includes(name));
+  if (JSON.stringify(rest.slice(0, popular.length)) !== JSON.stringify(popular)) throw new Error(`the rest start ${JSON.stringify(rest.slice(0, 3))}`);
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/2-chains.png` });
   await sheet.getByRole("button", { name: /Arbitrum/ }).click();
@@ -173,8 +186,34 @@ await check("lets a withdrawal be claimed instead of paying for delivery", async
 await check("shows activity", async () => {
   await page.getByRole("tab", { name: /Activity/ }).click();
   await page.waitForTimeout(4000);
+  if (await page.locator(".iub-activity-sub").filter({ hasText: /\d+ h \d+ min ago/ }).count()) throw new Error("activity times carry minutes past the hour");
   await page.screenshot({ path: `${OUT}/4-activity.png` });
 });
+
+if (FIND_TX) {
+  await check("finds a transfer by hash or address, no wallet needed", async () => {
+    const f = await open({ width: 1280, height: 900 });
+    await f.goto(`${SITE}/`);
+    await f.getByRole("tab", { name: /Activity/ }).click();
+    const box = f.getByLabel("Transaction hash or address");
+    await box.fill(FIND_TX);
+    await box.press("Enter");
+    // Any chain's hash: the card opens on the transfer it carries.
+    await f.getByText(/^(Delivered on|Arrives on|Arriving on) /).first().waitFor({ timeout: 60_000 });
+    await f.waitForTimeout(500);
+    await f.screenshot({ path: `${OUT}/15-find-tx.png` });
+    await f.getByRole("button", { name: "Back" }).click();
+    await box.fill(WALLET);
+    await box.press("Enter");
+    await f.getByText("Transfers for").waitFor();
+    await f.locator(".iub-activity button").first().waitFor({ timeout: 20_000 });
+    await f.waitForTimeout(500);
+    await f.screenshot({ path: `${OUT}/16-find-address.png` });
+    await box.fill("not a hash");
+    await box.press("Enter");
+    await f.getByText("That is not a transaction hash or an address.").waitFor();
+  });
+}
 
 if (TRACK) {
   await check("tracking page", async () => {
@@ -198,9 +237,12 @@ await check("connects a Solana wallet through Wallet Standard", async () => {
   await sp.keyboard.press("Escape");
 });
 
+await check("starts a deposit from Solana, where the only connected wallet holds USDC", async () => {
+  // SOL_WALLET holds USDC and no EVM wallet is connected here: the form moves off Base by itself.
+  await sp.getByRole("button", { name: /^Solana/ }).first().waitFor({ timeout: 20_000 });
+});
+
 await check("quotes a deposit from Solana", async () => {
-  await sp.getByRole("button", { name: /^Base/ }).first().click();
-  await sp.getByRole("dialog", { name: "Bridge from" }).getByRole("button", { name: /^Solana/ }).click();
   await sp.getByText(/^Balance/).waitFor({ timeout: 15_000 });
   await sp.getByLabel("Amount of USDC").fill("5");
   await sp.getByRole("button", { name: /^About .*(No fees|Fees)/ }).click({ timeout: 20_000 });

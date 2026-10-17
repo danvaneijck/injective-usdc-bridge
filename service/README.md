@@ -28,12 +28,14 @@ Design and the reasons behind each rule: [`../DESIGN.md`](../DESIGN.md#bridge-se
 | Route | |
 | --- | --- |
 | `GET /v1/transfers?address=` | 0x or inj1; transfers it sent or receives, newest first. `next` pages with `before`. |
+| `GET /v1/transfers?tx=` | Transfers in a tx found by its hash alone (0x, bare hex, or a Solana signature). An unseen hash is looked up on every chain once per 30 s. |
 | `GET /v1/transfers/:domain/:tx` | Transfers in one source tx; indexes it on demand if unseen. |
 | `POST /v1/transfers/hint` | `{sourceDomain, txHash}` right after a burn, so tracking starts at once. |
 | `GET /v1/health` | Per-chain indexer and attestation lag, relayer balance. 503 when not ok. |
 
 The API is public and read-mostly; `hint` and on-demand lookups each cost one
-RPC call, so put the service behind the usual reverse-proxy rate limit.
+RPC call (a `?tx=` miss, one per EVM chain), so put the service behind the
+usual reverse-proxy rate limit.
 
 A transfer's `phase` is `not_found`, `attesting`, `ready`, `expired` or
 `delivered`. `delivered` always comes from the destination chain. A `ready`

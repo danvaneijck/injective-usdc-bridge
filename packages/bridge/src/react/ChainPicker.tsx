@@ -4,9 +4,20 @@ import { FINALITY, type Network } from "../constants.js";
 import type { Direction } from "../quote.js";
 import { expectedAttestMs } from "../timing.js";
 import { ChainLogo } from "./ChainLogo.js";
-import { formatDuration } from "./format.js";
+import { formatDuration, formatUsdc } from "./format.js";
 import { IconBolt, IconCheck, IconSearch } from "./icons.js";
 import { Sheet } from "./Sheet.js";
+
+/** Chains holding the wallet's USDC first, most first; the rest keep the registry's order. */
+export function sortByBalance(chains: readonly Chain[], held: (c: Chain) => bigint): Chain[] {
+  const order = new Map(chains.map((c, i) => [c.key, i]));
+  return [...chains].sort((a, b) => {
+    const x = held(a);
+    const y = held(b);
+    if (x !== y) return x > y ? -1 : 1;
+    return order.get(a.key)! - order.get(b.key)!;
+  });
+}
 
 export function ChainPicker({
   open,
@@ -14,6 +25,7 @@ export function ChainPicker({
   chains,
   direction,
   selected,
+  balances,
   onPick,
   onClose,
 }: {
@@ -22,6 +34,8 @@ export function ChainPicker({
   chains: Chain[];
   direction: Direction;
   selected: string;
+  /** The wallet's USDC per chain, shown and sorted first; null to leave them out. */
+  balances: Map<string, bigint> | null;
   onPick: (key: string) => void;
   onClose: () => void;
 }) {
@@ -32,9 +46,11 @@ export function ChainPicker({
   }, [open]);
 
   const q = query.trim().toLowerCase();
-  const shown = q
+  const matching = q
     ? chains.filter((c) => c.name.toLowerCase().includes(q) || c.key.includes(q) || c.nativeSymbol.toLowerCase() === q)
     : chains;
+  const held = (c: Chain) => balances?.get(c.key) ?? 0n;
+  const shown = balances ? sortByBalance(matching, held) : matching;
 
   function subline(c: Chain): string {
     if (direction === "withdraw") return c.forwarding ? "Delivered by Circle" : `You claim it there, needs ${c.nativeSymbol}`;
@@ -84,11 +100,14 @@ export function ChainPicker({
                     <span className="iub-chains-name">{c.name}</span>
                     <span className="iub-chains-sub">{subline(c)}</span>
                   </span>
-                  {direction === "deposit" && c.fastSource ? (
-                    <span className="iub-chip">
-                      <IconBolt /> Fast
-                    </span>
-                  ) : null}
+                  <span className="iub-chains-end">
+                    {held(c) > 0n ? <span className="iub-chains-balance">{formatUsdc(held(c))} USDC</span> : null}
+                    {direction === "deposit" && c.fastSource ? (
+                      <span className="iub-chip">
+                        <IconBolt /> Fast
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="iub-chains-check" aria-hidden>
                     {c.key === selected ? <IconCheck /> : null}
                   </span>

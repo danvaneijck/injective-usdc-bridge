@@ -112,6 +112,67 @@ export function useUsdcBalance(env: Env, chain: Chain, owner: string | null): bi
   ).data;
 }
 
+export interface UsdcBalances {
+  /** Chain key to balance; a chain whose RPC has not answered is missing. */
+  byChain: Map<string, bigint>;
+  /** Every chain answered (or failed) at least once, or long enough has passed. */
+  settled: boolean;
+}
+
+const NO_BALANCES: UsdcBalances = { byChain: new Map(), settled: false };
+/** Past this, preselecting goes ahead with the chains that answered. */
+const BALANCES_WAIT_MS = 5_000;
+
+/**
+ * USDC on every chain the wallets can send from: the EVM wallet's on each EVM
+ * chain, the Solana wallet's on Solana. Chains fill in as they answer; a slow
+ * or failing RPC only leaves its own chain out.
+ */
+export function useUsdcBalances(env: Env, evm: string | null, sol: string | null): UsdcBalances {
+  const key = evm || sol ? `${evm ?? ""}|${sol ?? ""}` : null;
+  const [state, setState] = useState<{ key: string | null } & UsdcBalances>({ key: null, ...NO_BALANCES });
+  useEffect(() => {
+    if (!key) return;
+    let alive = true;
+    const merge = (patch: (s: UsdcBalances) => UsdcBalances) =>
+      alive && setState((s) => ({ key, ...patch(s.key === key ? s : NO_BALANCES) }));
+    const load = () =>
+      Promise.allSettled(
+        env.peerChains.map(async (chain) => {
+          const owner = chain.kind === "solana" ? sol : evm;
+          if (!owner) return;
+          const balance =
+            chain.kind === "solana"
+              ? await solanaTokenBalance(env.solanaRpc, owner, chain.usdcMint)
+              : await env.clientFor(chain).readContract({ address: chain.usdc, abi: erc20Abi, functionName: "balanceOf", args: [owner as Address] });
+          merge((s) => ({ ...s, byChain: new Map(s.byChain).set(chain.key, balance) }));
+        }),
+      ).then(() => merge((s) => ({ ...s, settled: true })));
+    void load();
+    const wait = setTimeout(() => merge((s) => ({ ...s, settled: true })), BALANCES_WAIT_MS);
+    const t = setInterval(() => void load(), 60_000);
+    return () => {
+      alive = false;
+      clearTimeout(wait);
+      clearInterval(t);
+    };
+    // key stands in for evm and sol.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, env]);
+  return state.key === key && key !== null ? state : NO_BALANCES;
+}
+
+/**
+ * The chain to start a deposit from: the one holding the most USDC, when the
+ * current one holds none. Null to stay put.
+ */
+export function richestChain(balances: Map<string, bigint>, current: string): string | null {
+  if ((balances.get(current) ?? 0n) > 0n) return null;
+  let best: [string, bigint] | null = null;
+  for (const [key, b] of balances) if (b > 0n && (!best || b > best[1])) best = [key, b];
+  return best?.[0] ?? null;
+}
+
 export function useSolBalance(env: Env, owner: string | null): bigint | null {
   return usePoll(owner ? `sol:${owner}` : null, () => solanaBalance(env.solanaRpc, owner!), 30_000).data;
 }
@@ -147,6 +208,20 @@ export function useGas(env: Env, chain: Chain, owner: string | null, units: bigi
       return { balance, need: gasNeed(fee, units) };
     },
     30_000,
+  ).data;
+}
+
+/** What `units` of gas cost on an EVM chain now, wallet or not; null on Solana or while `enabled` is false. */
+export function useGasCost(env: Env, chain: Chain, units: bigint, enabled = true): bigint | null {
+  return usePoll(
+    enabled && chain.kind === "evm" ? `gascost:${chain.key}:${units}` : null,
+    async () => {
+      const c = chain as EvmChain;
+      const client = env.clientFor(c);
+      const fee = await feeOverrides(client, c).then((f) => f?.maxFeePerGas ?? client.getGasPrice());
+      return gasNeed(fee, units);
+    },
+    60_000,
   ).data;
 }
 

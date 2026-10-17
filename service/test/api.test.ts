@@ -2,7 +2,7 @@ import { bech32 } from "@scure/base";
 import { hexToBytes } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { CCTP_CONTRACTS, addressToBytes32 } from "injective-usdc-bridge";
-import { createApi, normalizeAddress } from "../src/api.js";
+import { createApi, normalizeAddress, normalizeTx } from "../src/api.js";
 import { toNewTransfer } from "../src/classify.js";
 import { Health } from "../src/health.js";
 import { decodeDepositForBurn } from "../src/indexer.js";
@@ -50,6 +50,37 @@ describe("API", () => {
     const res = await app.request(`/v1/transfers/6/${TX}`);
     const body = (await res.json()) as { transfers: { claim: { chainId: number; to: string } }[] };
     expect(body.transfers[0]?.claim).toMatchObject({ chainId: 1776, to: CCTP_CONTRACTS.mainnet.messageTransmitter });
+  });
+
+  it("finds a transfer by its hash alone, asking every chain only for one it does not know", async () => {
+    const { app, store, clock } = setup();
+    const ingestAnywhere = vi.fn(async (tx: string) => {
+      const log = burnLog({ txHash: tx as `0x${string}` });
+      store.insertTransfers([toNewTransfer(decodeDepositForBurn(log)!, { srcDomain: 3, txHash: tx, logIndex: 0, blockNumber: 1n, blockTime: 1_700_000_000 }, ctx)], clock.t);
+    });
+    const api = createApi({ store, network: "mainnet", health: new Health({ store, network: "mainnet", mode: "shadow", chainKeys: ["base"], now: clock.now }), ingest: vi.fn(), ingestAnywhere });
+    const known = await api.request(`/v1/transfers?tx=${TX.slice(2).toUpperCase()}`);
+    expect(((await known.json()) as { transfers: { source: { domain: number } }[] }).transfers[0]?.source.domain).toBe(6);
+    expect(ingestAnywhere).not.toHaveBeenCalled();
+
+    const other = `0x${"cc".repeat(32)}`;
+    const found = (await (await api.request(`/v1/transfers?tx=${other}`)).json()) as { transfers: { source: { domain: number; name: string } }[] };
+    expect(found.transfers[0]?.source).toMatchObject({ domain: 3, name: "Arbitrum" });
+    expect(ingestAnywhere).toHaveBeenCalledWith(other);
+
+    // A miss is not retried for every request.
+    const none = `0x${"dd".repeat(32)}`;
+    await api.request(`/v1/transfers?tx=${none}`);
+    await api.request(`/v1/transfers?tx=${none}`);
+    expect(ingestAnywhere).toHaveBeenCalledTimes(2);
+    expect((await api.request("/v1/transfers?tx=nope")).status).toBe(400);
+  });
+
+  it("reads a pasted hash as stored", () => {
+    expect(normalizeTx(`  ${"AB".repeat(32)}`)).toBe(`0x${"ab".repeat(32)}`);
+    const sig = "4Um9oKSeCbY7LkqK496dMZe3tHFC4oVsfupLVDzL85L4RGsZdMjjvbESAPhCEwgZVV1ndAXDvmFVNMKvEDS7KCUL";
+    expect(normalizeTx(sig)).toBe(sig);
+    expect(normalizeTx("0x1234")).toBeNull();
   });
 
   it("hint ingests unknown txs, and rejects bad input", async () => {

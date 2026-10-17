@@ -20,7 +20,9 @@ const TYPES: Record<string, string> = {
  * and nothing may frame it: a bridge inside someone else's iframe is a
  * clickjacking target. Wallet extensions inject outside CSP's reach. The one
  * outside script is Cloudflare's analytics beacon, which its edge injects into
- * every page of the zone; it already sits in front of the site.
+ * every page of the zone; it already sits in front of the site. The one frame
+ * is WalletConnect's hidden domain check, which lets phone wallets show the
+ * site as verified.
  */
 export const SITE_CSP = [
   "default-src 'self'",
@@ -29,6 +31,7 @@ export const SITE_CSP = [
   "img-src 'self' data: https:",
   "font-src 'self'",
   "connect-src 'self' https: wss:",
+  "frame-src https://verify.walletconnect.org https://verify.walletconnect.com",
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "form-action 'none'",

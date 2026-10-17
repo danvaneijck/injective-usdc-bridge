@@ -15,6 +15,8 @@ export interface ApiDeps {
   bridgeReceiver?: Address;
   /** Index one source tx now and check it against Iris. */
   ingest: (srcDomain: number, txHash: string) => Promise<void>;
+  /** Same, for a hash whose chain is unknown: every chain is asked for it. */
+  ingestAnywhere?: (txHash: string) => Promise<void>;
   /** The built site (apps/site/dist), served beside the API when set. */
   siteDir?: string;
 }
@@ -31,6 +33,13 @@ export function normalizeAddress(input: string): string | null {
   if (evm) return evm;
   const s = input.trim();
   return isSolanaAddress(s) ? s : null;
+}
+
+/** A pasted hash as stored: 0x hex lowercased (a missing 0x added), a Solana signature as is. */
+export function normalizeTx(input: string): string | null {
+  const s = input.trim();
+  if (/^(0x)?[0-9a-fA-F]{64}$/.test(s)) return (s.startsWith("0x") ? s : `0x${s}`).toLowerCase();
+  return isSolanaSignature(s) ? s : null;
 }
 
 function isSolanaSignature(tx: string): boolean {
@@ -53,9 +62,24 @@ export function createApi(d: ApiDeps): Hono {
     return c.json(h, h.ok ? 200 : 503);
   });
 
-  app.get("/v1/transfers", (c) => {
+  app.get("/v1/transfers", async (c) => {
+    const txQuery = c.req.query("tx");
+    if (txQuery !== undefined) {
+      // Look up by hash alone, for someone who does not know (or never
+      // picked) the chain it was sent from.
+      const tx = normalizeTx(txQuery);
+      if (!tx) return c.json({ error: "tx must be a transaction hash or a Solana signature" }, 400);
+      let rows = d.store.byTxAnyDomain(tx);
+      const key = `any:${tx}`;
+      if (rows.length === 0 && d.ingestAnywhere && (recentHints.get(key) ?? 0) <= Date.now() - RECENT_HINT_MS) {
+        recentHints.set(key, Date.now());
+        await d.ingestAnywhere(tx);
+        rows = d.store.byTxAnyDomain(tx);
+      }
+      return c.json({ transfers: view(rows), next: null });
+    }
     const address = normalizeAddress(c.req.query("address") ?? "");
-    if (!address) return c.json({ error: "address must be a 0x, inj1 or Solana address" }, 400);
+    if (!address) return c.json({ error: "address must be a 0x, inj1 or Solana address, or pass tx" }, 400);
     const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 50) || 50, 1), 200);
     const before = c.req.query("before") ? Number(c.req.query("before")) : undefined;
     const rows = d.store.byAddress(address, limit, before);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { type Address, getAddress, isAddress } from "viem";
 import { Activity } from "./Activity.js";
+import { useTransferAlerts } from "./alerts.js";
 import { BridgeForm } from "./BridgeForm.js";
 import { useActivity, useEnv } from "./hooks.js";
 import { progressOf } from "./progress.js";
@@ -22,6 +23,14 @@ export function Bridge(props: BridgeProps) {
   const activity = useActivity(env, [address, solAddress].filter((a): a is string => a !== null));
   const inFlight = activity.items.filter((it) => !it.view || progressOf(it.view, Date.now()).headline !== "Delivered").length;
   const tab = view.name === "activity" || (view.name === "track" && view.from === "activity") ? "activity" : "form";
+  const [lookup, setLookup] = useState<string | null>(null);
+  // A send the service has not found within minutes never will (it failed or
+  // was dropped); it stops counting as on its way.
+  const pending = activity.items.filter((it) => it.pending && Date.now() - it.pending.at < 10 * 60_000).length;
+  useTransferAlerts(
+    activity.items.flatMap((it) => (it.view ? [it.view] : [])),
+    { title: props.tabTitle === true, pending },
+  );
 
   return (
     <div className={`iub ${props.className ?? ""}`}>
@@ -64,6 +73,8 @@ export function Bridge(props: BridgeProps) {
             onStart={() => setView({ name: "form" })}
             onConnectWallet={props.onConnectWallet}
             solanaWallet={props.solanaWallet ?? null}
+            lookup={lookup}
+            onLookup={setLookup}
           />
         </div>
       ) : null}

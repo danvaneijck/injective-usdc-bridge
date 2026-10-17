@@ -1,13 +1,14 @@
 import { Component, type ReactNode, useEffect, useState } from "react";
 import { type Address, type Hex, getAddress } from "viem";
 import { chainByDomain, explorerTxUrl } from "../chains.js";
-import { USDC_DECIMALS } from "../constants.js";
+import { FINALITY, USDC_DECIMALS } from "../constants.js";
 import { bytes32ToSolana } from "../solana.js";
 import type { TransferView } from "./api.js";
 import { ChainLogo, ChainPair } from "./ChainLogo.js";
 import { formatAmount, formatDuration, formatUsdc, shortAddress } from "./format.js";
 import { type Env, useEnv, useNow, usePoll, useSolanaEventAccounts } from "./hooks.js";
-import { IconAlert, IconArrow, IconBack, IconCheck, IconCopy, IconExternal, IconInfo, IconSuccess, PulseDot, Spinner } from "./icons.js";
+import { IconAlert, IconArrow, IconBack, IconBell, IconCheck, IconCopy, IconExternal, IconInfo, IconSuccess, PulseDot, Spinner } from "./icons.js";
+import { enableNotifications, notificationsOn, notificationsSupported, useTransferAlerts } from "./alerts.js";
 import { type Progress, type Step, progressOf } from "./progress.js";
 import { claimOnSolana, reclaimDeposit, refundState } from "./refunds.js";
 import type { BridgeWallet, SolanaWallet } from "./types.js";
@@ -25,6 +26,8 @@ export interface TransferStatusProps {
   network?: TransferStatusEnvProps["network"];
   apiUrl?: string;
   rpcUrls?: Partial<Record<string, string[]>>;
+  /** Show the transfer's progress in front of the page title. Off by default: the title is the host's. */
+  tabTitle?: boolean;
   className?: string;
 }
 
@@ -44,6 +47,7 @@ export function TransferStatus(props: TransferStatusProps) {
           onConnectWallet={props.onConnectWallet}
           solanaWallet={props.solanaWallet ?? null}
           onConnectSolanaWallet={props.onConnectSolanaWallet}
+          tabTitle={props.tabTitle}
         />
       </div>
     </div>
@@ -62,15 +66,18 @@ export function TransferTracker({
   domain,
   txHash,
   onBack,
+  tabTitle,
   ...wallets
 }: Wallets & {
   env: Env;
   domain: number;
   txHash: string;
   onBack?: () => void;
+  tabTitle?: boolean | undefined;
 }) {
   const { data, refresh } = usePoll(`tx:${domain}:${txHash}`, () => env.api.transfer(domain, txHash), 4_000);
   const now = useNow();
+  useTransferAlerts(data ?? [], { title: tabTitle === true });
   const src = chainByDomain(env.network, domain);
 
   return (
@@ -217,6 +224,9 @@ function TransferCard({
         const hash = await sendCall(wallet.provider, getAddress(wallet.address) as Address, chain, client, { to: c.to as Address, data: c.data as Hex });
         await client.waitForTransactionReceipt({ hash, timeout: 180_000 });
       }
+      // The service would only notice on its next check, minutes away for an
+      // older transfer; have it look now, so the card turns Delivered.
+      await env.api.hint(view.source.domain, view.source.txHash);
       onClaimed();
     } catch (e) {
       setError(friendlyError(e));
@@ -226,6 +236,7 @@ function TransferCard({
   }
   const canSign = onSolana ? solanaWallet != null : Boolean(wallet?.address && wallet.provider);
   const receiver = receiverOf(view);
+  const fee = feeLine(view);
   const connect = onSolana ? onConnectSolanaWallet : onConnectWallet;
 
   return (
@@ -255,6 +266,8 @@ function TransferCard({
 
       <Steps steps={p.steps} />
 
+      {p.tone === "progress" ? <NotifyMe claim={view.direction === "withdraw" && view.kind !== "forward"} /> : null}
+
       <dl className="iub-facts">
         {receiver ? (
           <div>
@@ -281,10 +294,10 @@ function TransferCard({
             </dd>
           </div>
         ) : null}
-        {view.feeExecuted && BigInt(view.feeExecuted) > 0n ? (
+        {fee ? (
           <div>
-            <dt>Circle fee</dt>
-            <dd>{formatUsdc(BigInt(view.feeExecuted), 6)} USDC</dd>
+            <dt>{fee.label}</dt>
+            <dd>{fee.value}</dd>
           </div>
         ) : null}
         {refund?.state === "waiting" || refund?.state === "refunded" ? (
@@ -353,6 +366,21 @@ export function receiverOf(view: TransferView): { label: string; address: string
   return null;
 }
 
+/**
+ * The fee Circle took, named as the form named it. A delivered withdrawal's
+ * fee is mostly (from Injective, wholly) the delivery; Circle's own fee is
+ * only charged on fast burns.
+ */
+export function feeLine(view: TransferView): { label: string; value: string } | null {
+  const fee = view.feeExecuted ? BigInt(view.feeExecuted) : 0n;
+  if (fee <= 0n) return null;
+  const amount = `${formatUsdc(fee, 6)} USDC`;
+  if (view.kind !== "forward") return { label: "Circle fee", value: amount };
+  return view.minFinality >= FINALITY.standard
+    ? { label: "Delivery", value: `${amount}, by Circle` }
+    : { label: "Fees", value: `${amount}, Circle fee and delivery` };
+}
+
 const formatSol = (lamports: bigint) => formatAmount(lamports, 9, 4);
 const formatWhen = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -407,6 +435,22 @@ function RefundAction({
       )}
       {error ? <Note tone="error">{error}</Note> : null}
     </div>
+  );
+}
+
+/** Opt in to a browser notification for when a transfer lands, from a click as browsers require. */
+function NotifyMe({ claim }: { claim: boolean }) {
+  const [on, setOn] = useState(notificationsOn);
+  if (!notificationsSupported() || (!on && Notification.permission === "denied")) return null;
+  const when = claim ? "when it is ready to claim" : "when it lands";
+  return on ? (
+    <span className="iub-notify iub-muted">
+      <IconBell /> You will get a notification {when}.
+    </span>
+  ) : (
+    <button type="button" className="iub-notify iub-link" onClick={() => void enableNotifications().then(setOn)}>
+      <IconBell /> Notify me {when}
+    </button>
   );
 }
 

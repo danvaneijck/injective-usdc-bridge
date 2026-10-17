@@ -53,9 +53,15 @@ export function formatDuration(ms: number): string {
   return h % 24 ? `1 day ${h % 24} h` : "1 day";
 }
 
+/** When something happened, as coarse as a list row needs: "4 h ago", not "4 h 25 min ago". */
 export function timeAgo(iso: string | null, now: number): string {
   if (!iso) return "";
   const ms = now - Date.parse(iso);
   if (ms < 60_000) return "just now";
-  return `${formatDuration(ms)} ago`;
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "yesterday" : `${d} days ago`;
 }

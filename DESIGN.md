@@ -250,10 +250,20 @@ sends; `MODE=relay` also mints deposits. Config in `service/.env.example`.
   floor. A revert after someone else's mint is recorded as delivered, not as
   an error. 8 attempts with backoff, then it logs for a human.
 - **API** (`api.ts`, Hono): `GET /v1/transfers?address=` (0x or inj1;
-  depositor or recipient), `GET /v1/transfers/:domain/:tx`,
+  depositor or recipient), `GET /v1/transfers?tx=` (by hash alone: an
+  unseen 0x hash is asked of every EVM chain at once),
+  `GET /v1/transfers/:domain/:tx`,
   `POST /v1/transfers/hint`, `GET /v1/health` (per-lane indexer and Iris lag,
   relayer balance; 503 when not ok). Every `ready` transfer carries a `claim`
   call `{chainId, to, data}` a UI can send as-is.
+- **Mint links** (`mintFinder.ts`, 2026-10-17): a delivery nobody reported
+  (a self-claim, another relayer's mint) gets its transaction looked up when
+  the tracker watched for it, so it landed after the last check that found it
+  undelivered. On Solana that is the oldest successful transaction on the
+  nonce's account; on EVM chains `MessageReceived` by its indexed nonce, from
+  head back to that check, in at most 6 getLogs calls (1 on HyperEVM), else
+  no link. The widget hints the service right after a claim, so the check
+  (and the card turning Delivered) is immediate.
 - **Storage**: SQLite (WAL), not Postgres: one writer process, and every row
   can be rebuilt from chain data by rewinding a cursor. Tests run against the
   real database instead of mocks.
@@ -294,6 +304,23 @@ Choice v2 look, themeable):
   withdrawals Circle does not deliver, e.g. Plasma).
 - Activity: the service's list for the wallet plus journal entries it has
   not returned yet, each looked up by hash (which makes the service index it).
+  A search box finds any transfer without a wallet: a hash from any chain
+  opens its card, an address lists its transfers.
+- Balances (2026-10-17): the wallet's USDC on every chain it can send from,
+  read once on connect and each minute. The chain sheet shows them and lists
+  those chains first; a deposit starts on the chain holding the most, once
+  per wallet, unless a chain was chosen (`defaultChain` counts) or the
+  current one holds some.
+- Landing alerts: with `tabTitle`, progress leads the page title ("12 min
+  left", "Delivering", "Delivered" until the tab is looked at). A transfer
+  card offers "Notify me when it lands": a browser notification when it lands
+  (or is ready to claim) while the tab is in the background. Only changes
+  seen on the page are announced.
+- One prompt where the wallet can: approve and burn go out as one atomic
+  EIP-5792 batch when `wallet_getCapabilities` says `atomic: supported`.
+  "ready" (the wallet would first offer to upgrade the account to a smart
+  account) is left out, as is Injective, whose fee must be pinned per
+  transaction.
 - Chain logos are web3icons' brand-colour marks (MIT, see
   `packages/bridge/THIRD_PARTY_NOTICES.md`) for 16 chains, and Solana's own
   current logomark (solana.com/branding, unaltered on black, as its brand
@@ -413,4 +440,7 @@ Both directions, built 2026-10-17 (Dan: both together, public RPC for now).
 ## Open
 
 - Choice v2 and the launchpad embed the widget.
-- Record who minted each deposit (`minted_by` is "unknown" unless we relayed it).
+- Record who minted each deposit (`minted_by` is "unknown" unless we relayed
+  it; the mint transaction is now linked when found, its sender is not read).
+- WalletConnect on the site needs a Reown project id
+  (`VITE_WALLETCONNECT_PROJECT_ID`, public); without one the option is hidden.

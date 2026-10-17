@@ -12,12 +12,25 @@ import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { CLAIM_GAS_UNITS, gasWarning } from "./gas.js";
-import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useGas, useUsdcBalance } from "./hooks.js";
+import { CLAIM_GAS_UNITS, formatGasAmount, gasWarning } from "./gas.js";
+import {
+  type Env,
+  richestChain,
+  useGas,
+  useGasCost,
+  useGasDrop,
+  useInjBalance,
+  useLanes,
+  useQuote,
+  useSolBalance,
+  useSolanaRecipient,
+  useUsdcBalance,
+  useUsdcBalances,
+} from "./hooks.js";
 import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconParcel, IconWallet, Spinner } from "./icons.js";
 import { sendWithSolanaWallet } from "./solanaSend.js";
 import type { Eip1193Provider, SolanaWallet } from "./types.js";
-import { friendlyError, sendCall } from "./wallet.js";
+import { canBatch, friendlyError, sendBatch, sendCall } from "./wallet.js";
 
 /** Under this much INJ, the gas drop starts ticked. */
 const LOW_INJ = parseEther("0.01");
@@ -34,11 +47,11 @@ const SOL_FOR_CLAIM_OPENING = 3_200_000n;
 
 type Busy = null | "approving" | "sending" | "preparing" | "confirming";
 
-const BUSY_LABEL: Record<Exclude<Busy, null>, string> = {
-  approving: "Approving USDC",
-  sending: "Confirm in your wallet",
-  preparing: "Preparing the transaction",
-  confirming: "Waiting for Solana",
+const BUSY_LABEL: Record<Exclude<Busy, null>, (chain: string) => string> = {
+  approving: () => "Approving USDC",
+  sending: () => "Confirm in your wallet",
+  preparing: () => "Preparing the transaction",
+  confirming: (chain) => `Waiting for ${chain}`,
 };
 
 const RECIPIENT_PROBLEM = {
@@ -83,6 +96,8 @@ export function BridgeForm({
   const [error, setError] = useState<string | null>(null);
   const [flips, setFlips] = useState(0);
   const [details, setDetails] = useState(false);
+  /** The user (or the host, through defaultChain) chose the chain: never move it for them. */
+  const [chainChosen, setChainChosen] = useState(defaultChain !== undefined);
   const body = useRef<HTMLDivElement>(null);
 
   // While the chain sheet is up, the form behind it is out of reach of
@@ -116,6 +131,22 @@ export function BridgeForm({
             : null;
 
   const balance = useUsdcBalance(env, source, sender);
+  const balances = useUsdcBalances(env, address, solAddress);
+
+  // Start a deposit where the wallet's USDC is, once per wallet, unless a
+  // chain was chosen or the current one already holds some.
+  const preselectedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const who = `${address ?? ""}|${solAddress ?? ""}`;
+    if (chainChosen || !deposit || !balances.settled || preselectedFor.current === who) return;
+    preselectedFor.current = who;
+    const best = richestChain(balances.byChain, peer.key);
+    if (best) {
+      setPeerKey(best);
+      setSpeedChoice(null);
+      setRecipientText(null);
+    }
+  }, [address, solAddress, balances, chainChosen, deposit, peer.key]);
   const gas = useGas(env, source, fromSolana ? null : address);
   const gasNote = gasWarning(gas, source.nativeSymbol, source.name);
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
@@ -134,6 +165,8 @@ export function BridgeForm({
 
   const solBalance = useSolBalance(env, fromSolana || (toSolana && selfClaim) ? solAddress : null);
   const claimGas = useGas(env, destination, selfClaim && destination.kind === "evm" ? address : null, CLAIM_GAS_UNITS);
+  // Priced up front, so both delivery options show what they cost.
+  const claimCost = useGasCost(env, destination, CLAIM_GAS_UNITS, forwardable && !toSolana);
   const claimGasNote = !selfClaim
     ? null
     : toSolana
@@ -223,13 +256,20 @@ export function BridgeForm({
       allowance,
       ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
     });
-    if (plan.approve) {
-      setBusy("approving");
-      const approval = await sendCall(provider, address, source, client, plan.approve);
-      await client.waitForTransactionReceipt({ hash: approval, timeout: 180_000 });
+    let hash: Hex;
+    if (plan.approve && (await canBatch(provider, address, source))) {
+      // One confirmation for both, where the wallet batches them atomically.
+      setBusy("sending");
+      hash = await sendBatch(provider, address, source, [plan.approve, plan.burn], () => setBusy("confirming"));
+    } else {
+      if (plan.approve) {
+        setBusy("approving");
+        const approval = await sendCall(provider, address, source, client, plan.approve);
+        await client.waitForTransactionReceipt({ hash: approval, timeout: 180_000 });
+      }
+      setBusy("sending");
+      hash = await sendCall(provider, address, source, client, plan.burn);
     }
-    setBusy("sending");
-    const hash: Hex = await sendCall(provider, address, source, client, plan.burn);
     record(source.domain, hash, address);
     setAmountText("");
     onSent(source.domain, hash);
@@ -252,7 +292,7 @@ export function BridgeForm({
     action = { label: "Connect a Solana wallet", enabled: Boolean(onConnectSolanaWallet), ...(onConnectSolanaWallet ? { run: onConnectSolanaWallet } : {}) };
   } else if (!fromSolana && !address) {
     action = { label: "Connect wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
-  } else if (busy) action = { label: BUSY_LABEL[busy], enabled: false };
+  } else if (busy) action = { label: BUSY_LABEL[busy](source.name), enabled: false };
   else if (amount === null || amount === 0n) action = { label: "Enter an amount", enabled: false };
   else if (!recipient) {
     action = { label: deposit ? "Enter your Injective address" : toSolana ? "Enter a Solana wallet address" : "Enter a valid recipient", enabled: false };
@@ -378,7 +418,9 @@ export function BridgeForm({
                   ? "Circle must open their USDC account"
                   : toSolana
                     ? `No fee, about ${formatAmount(claimSol, 9, 4)} SOL to claim`
-                    : `No fee, you pay ${destination.nativeSymbol} gas on ${destination.name}`}
+                    : claimCost !== null && destination.kind === "evm"
+                      ? `No fee, about ${formatGasAmount(claimCost)} ${destination.nativeSymbol} to claim`
+                      : `No fee, you pay ${destination.nativeSymbol} gas on ${destination.name}`}
               </span>
             </button>
           </div>
@@ -507,7 +549,9 @@ export function BridgeForm({
         chains={env.peerChains}
         direction={direction}
         selected={peer.key}
+        balances={deposit ? balances.byChain : null}
         onPick={(key) => {
+          setChainChosen(true);
           setPeerKey(key);
           setSpeedChoice(null);
           setRecipientText(null);

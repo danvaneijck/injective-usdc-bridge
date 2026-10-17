@@ -83,6 +83,12 @@ export const IconParcel = () => (
   </svg>
 );
 
+export const IconBell = () => (
+  <svg {...base}>
+    <path d="M4.25 6.5a3.75 3.75 0 0 1 7.5 0c0 3.5 1.5 4.75 1.5 4.75H2.75s1.5-1.25 1.5-4.75M6.75 13.5a1.4 1.4 0 0 0 2.5 0" {...stroke} />
+  </svg>
+);
+
 export const IconClock = () => (
   <svg {...base}>
     <circle cx="8" cy="8" r="6.25" {...stroke} />

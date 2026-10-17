@@ -33,6 +33,11 @@ export interface TrackerDeps {
    * account, so this is how a withdrawal learns who it is for.
    */
   solanaOwner?: (tokenAccount: Hex) => Promise<string | null>;
+  /**
+   * The destination tx that used a nonce, minted at or after `sinceMs`
+   * (mintFinder.ts). How a self-claim or another relayer's mint gets a link.
+   */
+  findMintTx?: (dstDomain: number, nonce: Hex, sinceMs: number) => Promise<string | null>;
   log: Logger;
   now: () => number;
   batch?: number;
@@ -153,7 +158,17 @@ export class Tracker {
 
     if (await this.d.isNonceUsed(row.dst_domain, a.m.eventNonce)) {
       const mintedBy = row.minted_by ?? (forwardTx ? "circle" : "unknown");
-      const mintTx = row.mint_tx ?? forwardTx;
+      let mintTx = row.mint_tx ?? forwardTx;
+      // Nobody reported this mint. If we watched for it (an earlier check
+      // found it undelivered, or the burn is fresh), it landed since, which
+      // bounds the search.
+      const watchedSince = row.checked_at ?? (now - burnedAt(row) <= FRESH_DELIVERY_MS ? burnedAt(row) : null);
+      if (mintTx === null && watchedSince !== null && this.d.findMintTx) {
+        mintTx = await this.d.findMintTx(row.dst_domain, a.m.eventNonce, watchedSince).catch((e: unknown) => {
+          this.d.log.warn("mint tx search failed", { dst: row.dst_domain, tx: row.tx_hash, error: (e as Error).message.split("\n")[0] });
+          return null;
+        });
+      }
       let deliveredAt = row.delivered_at;
       if (deliveredAt === null && mintTx && this.d.txTime) {
         deliveredAt = await this.d.txTime(row.dst_domain, mintTx).catch(() => null);

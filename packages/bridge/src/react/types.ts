@@ -46,9 +46,14 @@ export interface BridgeProps {
   network?: Network;
   /** The bridge service. Defaults to Choice's. "" means this page's own origin. */
   apiUrl?: string;
-  /** Peer chain the form opens on. */
+  /** Peer chain the form opens on. Without it, deposits start where the wallet holds USDC. */
   defaultChain?: string;
   defaultDirection?: Direction;
+  /**
+   * Show transfers' progress in front of the page title ("12 min left | ...").
+   * Off by default: the title is the host's.
+   */
+  tabTitle?: boolean;
   /** Per chain key, RPCs placed ahead of the registry's (for balance reads and receipts). */
   rpcUrls?: Partial<Record<string, string[]>>;
   className?: string;

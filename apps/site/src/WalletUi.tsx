@@ -1,6 +1,8 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { ChainLogo } from "injective-usdc-bridge/react";
+import { encode } from "uqr";
 import { type SolanaWalletState, lastSolanaWallet } from "./solanaWallets";
+import { WC_WALLETS } from "./walletConnect";
 import { type WalletState, lastWallet } from "./wallets";
 
 export type WalletKind = "evm" | "solana";
@@ -215,7 +217,78 @@ interface Choice {
   name: string;
   icon: string;
   last: boolean;
+  sub?: string;
   connect: () => Promise<void>;
+}
+
+/** A phone with a QR code: WalletConnect's own mark is the partner's to use, not ours. */
+const WC_ICON = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="10" fill="#1b1e27"/><rect x="11" y="6.5" width="14" height="23" rx="3" fill="none" stroke="#e8eaf0" stroke-width="1.6"/><path d="M14.5 11h3v3h-3zM18.5 11h3v3h-3zM14.5 15h3v3h-3zM19.5 16h2v2h-2zM16.5 19h2v2h-2z" fill="#fdc70c"/><path d="M16 25.5h4" stroke="#e8eaf0" stroke-width="1.6" stroke-linecap="round"/></svg>',
+)}`;
+
+/** A WalletConnect pairing: links into phone wallets, a QR code to scan, the raw link to copy. */
+function WcPairing({ uri, onBack }: { uri: string; onBack: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const touch = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1400);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <div className="site-wc">
+      {touch ? (
+        <>
+          <p className="site-muted site-modal-sub">Open it in your wallet app, then come back here.</p>
+          <ul className="site-wallets">
+            {[...WC_WALLETS.map((w) => ({ name: w.name, href: w.link(uri) })), { name: "Another wallet", href: uri }].map((w, i) => (
+              <li key={w.name} style={{ animationDelay: `${60 + i * 35}ms` }}>
+                <a href={w.href} rel="noreferrer">
+                  <span className="site-wallet-name">{w.name}</span>
+                  <svg className="site-go" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path d="m6 4 4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <p className="site-muted site-modal-sub site-wc-scan">{touch ? "Or scan it from another device:" : "Scan this with your phone's wallet app."}</p>
+      <div className="site-qr">
+        <Qr text={uri} />
+      </div>
+      <div className="site-wc-actions">
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(uri).then(() => setCopied(true), () => undefined);
+          }}
+        >
+          {copied ? "Copied" : "Copy link"}
+        </button>
+        <button type="button" onClick={onBack}>
+          Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Qr({ text }: { text: string }) {
+  const { data, size } = encode(text, { ecc: "M", border: 2 });
+  let d = "";
+  data.forEach((row, y) =>
+    row.forEach((dark, x) => {
+      if (dark) d += `M${x} ${y}h1v1h-1z`;
+    }),
+  );
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%" shapeRendering="crispEdges" role="img" aria-label="WalletConnect QR code">
+      <rect width={size} height={size} fill="#fff" />
+      <path d={d} fill="#0b0d12" />
+    </svg>
+  );
 }
 
 export function WalletPicker({
@@ -240,14 +313,22 @@ export function WalletPicker({
 
   const lastEvm = lastWallet();
   const lastSol = lastSolanaWallet();
-  const choices: Choice[] =
+  const wc = kind === "evm" ? evm.walletConnect : null;
+  const browser: Choice[] =
     kind === "evm"
       ? evm.wallets.map((w) => ({ id: w.info.uuid, name: w.info.name, icon: w.info.icon, last: w.info.rdns === lastEvm, connect: () => evm.connect(w) }))
       : solana.wallets.map((w) => ({ id: `sol:${w.name}`, name: w.name, icon: w.icon, last: w.name === lastSol, connect: () => solana.connect(w) }));
+  const choices: Choice[] = wc
+    ? [...browser, { id: "walletconnect", name: "WalletConnect", icon: WC_ICON, last: lastEvm === "walletconnect", sub: "Phone wallets, by QR code", connect: wc.connect }]
+    : browser;
   const error = kind === "evm" ? evm.error : solana.error;
+  const close = () => {
+    wc?.cancel();
+    onClose();
+  };
 
   return (
-    <Modal open={open} onClose={onClose} title="Connect a wallet">
+    <Modal open={open} onClose={close} title="Connect a wallet">
       <div className="site-kind" role="tablist" data-active={kind === "evm" ? "0" : "1"}>
         <span className="site-kind-indicator" aria-hidden />
         <button type="button" role="tab" aria-selected={kind === "evm"} onClick={() => onKind("evm")}>
@@ -257,7 +338,9 @@ export function WalletPicker({
           <ChainLogo chain="solana" name="Solana" size={18} /> Solana
         </button>
       </div>
-      {choices.length === 0 ? (
+      {wc?.uri ? (
+        <WcPairing uri={wc.uri} onBack={wc.cancel} />
+      ) : choices.length === 0 ? (
         <div className="site-nowallet" key={kind}>
           <p className="site-muted">
             No {kind === "solana" ? "Solana" : "browser"} wallet found on this device. Install one, then reload this page.
@@ -284,7 +367,11 @@ export function WalletPicker({
       ) : (
         <>
           <p className="site-muted site-modal-sub">
-            {kind === "solana" ? "To bridge from Solana, or to receive there." : "Pick the wallet that holds your USDC."}
+            {kind === "solana"
+              ? "To bridge from Solana, or to receive there."
+              : browser.length === 0
+                ? "No browser wallet on this device. Connect a phone wallet instead."
+                : "Pick the wallet that holds your USDC."}
           </p>
           <ul className="site-wallets" key={kind}>
             {choices.map((w, i) => (
@@ -299,7 +386,10 @@ export function WalletPicker({
                 >
                   <WalletIcon icon={w.icon} size={36} />
                   <span className="site-wallet-name">
-                    {w.name}
+                    <span className="site-wallet-label">
+                      {w.name}
+                      {w.sub ? <span className="site-wallet-sub">{w.sub}</span> : null}
+                    </span>
                     {w.last ? <span className="site-tag">Last used</span> : null}
                   </span>
                   {connecting === w.id ? (

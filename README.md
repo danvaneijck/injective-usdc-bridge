@@ -69,9 +69,12 @@ import "injective-usdc-bridge/react/styles.css";
 />
 ```
 
-It quotes, approves and burns, tracks every transfer through the bridge
-service (`apiUrl`, default `https://bridge-api.choice.exchange`), and offers a
-one-click finish for anything stuck. Restyle it with the `--iub-*` CSS
+It quotes, approves and burns (in one prompt where the wallet batches calls,
+EIP-5792), tracks every transfer through the bridge service (`apiUrl`,
+default `https://bridge-api.choice.exchange`), and offers a one-click finish
+for anything stuck. Deposits start on the chain holding the wallet's USDC
+unless `defaultChain` is set; `tabTitle` puts a transfer's progress in the
+page title. Restyle it with the `--iub-*` CSS
 variables on `.iub`; the defaults follow Choice v2. `TransferStatus` is the
 tracking card on its own; `ChainLogo` and `ChainPair` are the chain marks.
 The logos are web3icons' (MIT), see

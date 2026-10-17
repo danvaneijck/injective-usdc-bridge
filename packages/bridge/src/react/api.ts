@@ -66,6 +66,12 @@ export class BridgeApi {
     return (body as { transfers?: TransferView[] }).transfers ?? [];
   }
 
+  /** The transfers in a transaction on whichever chain sent it, found by its hash alone. */
+  async transfersByTx(tx: string): Promise<TransferView[]> {
+    const body = await this.get(`/v1/transfers?tx=${encodeURIComponent(tx)}`);
+    return (body as { transfers?: TransferView[] }).transfers ?? [];
+  }
+
   /** The transfers in one source transaction; [] until it is mined and indexed. */
   async transfer(domain: number, txHash: string): Promise<TransferView[]> {
     const res = await fetch(`${this.base}/v1/transfers/${domain}/${txHash}`);

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { TransferView } from "../src/react/api.js";
-import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput } from "../src/react/format.js";
+import { landingMessage, stageOf, titleStatus } from "../src/react/alerts.js";
+import { sortByBalance } from "../src/react/ChainPicker.js";
+import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, timeAgo } from "../src/react/format.js";
+import { richestChain } from "../src/react/hooks.js";
+import { parseLookup } from "../src/react/lookup.js";
 import { formatGasAmount, gasNeed, gasWarning } from "../src/react/gas.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
-import { receiverOf } from "../src/react/TransferStatus.js";
+import { feeLine, receiverOf } from "../src/react/TransferStatus.js";
+import { peers } from "../src/chains.js";
 import { toEvmAddress, toInjAddress } from "../src/address.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00Z");
@@ -103,6 +108,16 @@ describe("durations and gas", () => {
     expect(formatDuration(29 * 3_600_000)).toBe("1 day 5 h");
     expect(formatDuration(24 * 3_600_000)).toBe("1 day");
     expect(formatDuration(5 * 3_600_000 + 60_000)).toBe("5 h 1 min");
+  });
+
+  it("says how long ago at a list's grain", () => {
+    const at = (ms: number) => timeAgo(new Date(T0).toISOString(), T0 + ms);
+    expect(at(20_000)).toBe("just now");
+    expect(at(14 * 60_000 + 50_000)).toBe("14 min ago");
+    expect(at(4 * 3_600_000 + 25 * 60_000)).toBe("4 h ago");
+    expect(at(30 * 3_600_000)).toBe("yesterday");
+    expect(at(173 * 3_600_000)).toBe("7 days ago");
+    expect(timeAgo(null, T0)).toBe("");
   });
 
   it("warns before signing when the source chain's gas is missing or short", () => {
@@ -203,5 +218,85 @@ describe("amounts and addresses", () => {
     expect(inj.startsWith("inj1")).toBe(true);
     expect(toEvmAddress(inj)?.toLowerCase()).toBe(a);
     expect(toEvmAddress("inj1notanaddress")).toBeNull();
+  });
+});
+
+describe("feeLine", () => {
+  it("names the fee as the form did: Circle's fee, the delivery, or both", () => {
+    expect(feeLine(view({ feeExecuted: "0" }))).toBeNull();
+    expect(feeLine(view({ feeExecuted: "2500", minFinality: 1000 }))).toEqual({ label: "Circle fee", value: "0.0025 USDC" });
+    // From Injective (standard finality) Circle's fee is nil: it is all delivery.
+    expect(feeLine(view({ kind: "forward", feeExecuted: "281261" }))).toEqual({ label: "Delivery", value: "0.281261 USDC, by Circle" });
+    expect(feeLine(view({ kind: "forward", feeExecuted: "90000", minFinality: 1000 }))).toEqual({
+      label: "Fees",
+      value: "0.09 USDC, Circle fee and delivery",
+    });
+  });
+});
+
+describe("chain balances", () => {
+  const chains = peers("mainnet");
+  const keys = (list: { key: string }[]) => list.map((c) => c.key);
+
+  it("lists chains holding USDC first, most first, the rest in the usual order", () => {
+    const held = new Map([
+      ["arbitrum", 5_000_000n],
+      ["polygon", 90_000_000n],
+    ]);
+    const sorted = sortByBalance(chains, (c) => held.get(c.key) ?? 0n);
+    expect(keys(sorted).slice(0, 4)).toEqual(["polygon", "arbitrum", "solana", "hyperevm"]);
+    expect(sorted).toHaveLength(chains.length);
+  });
+
+  it("starts where the USDC is, unless the current chain holds some", () => {
+    const held = new Map([
+      ["base", 0n],
+      ["arbitrum", 5_000_000n],
+      ["solana", 9_000_000n],
+    ]);
+    expect(richestChain(held, "base")).toBe("solana");
+    expect(richestChain(new Map([...held, ["base", 1n]]), "base")).toBeNull();
+    expect(richestChain(new Map([["base", 0n]]), "base")).toBeNull();
+  });
+});
+
+describe("parseLookup", () => {
+  it("tells transactions from wallets, whichever chain they are on", () => {
+    const hash = "0xF45A2B21" + "ab".repeat(28);
+    expect(parseLookup(` ${hash} `)).toEqual({ kind: "tx", tx: hash.toLowerCase() });
+    expect(parseLookup(hash.slice(2))).toEqual({ kind: "tx", tx: hash.toLowerCase() });
+    const sig = "4Um9oKSeCbY7LkqK496dMZe3tHFC4oVsfupLVDzL85L4RGsZdMjjvbESAPhCEwgZVV1ndAXDvmFVNMKvEDS7KCUL";
+    expect(parseLookup(sig)).toEqual({ kind: "tx", tx: sig });
+    expect(parseLookup("0x7516e4d49976f6485a9bf03fac841abf0369e4f6")).toEqual({ kind: "address", address: "0x7516E4D49976f6485A9BF03fac841AbF0369E4f6" });
+    expect(parseLookup("inj1w5twf4yewmmysk5m7ql6epq6hupkne8kq7j9a0")).toEqual({ kind: "address", address: "0x7516E4D49976f6485A9BF03fac841AbF0369E4f6" });
+    expect(parseLookup("9BcP3QkBxh1ZrEWLAcVTJ2asXgHuocdG56bvGTEUREho")).toEqual({ kind: "address", address: "9BcP3QkBxh1ZrEWLAcVTJ2asXgHuocdG56bvGTEUREho" });
+    expect(parseLookup("hello")).toBeNull();
+    expect(parseLookup("")).toBeNull();
+  });
+});
+
+describe("alerts", () => {
+  it("puts the wait in the tab title while something is on its way", () => {
+    expect(titleStatus([], 0, T0)).toBeNull();
+    expect(titleStatus([view({ phase: "delivered" })], 0, T0)).toBeNull();
+    expect(titleStatus([], 1, T0)).toBe("Confirming");
+    expect(titleStatus([view({})], 0, T0 + 8 * 60_000)).toBe("12 min left");
+    expect(titleStatus([view({})], 0, T0 + 19 * 60_000 + 30_000)).toBe("Waiting for Circle");
+    expect(titleStatus([view({ phase: "ready", attestedAt: new Date(T0).toISOString() })], 0, T0)).toBe("Delivering");
+    expect(titleStatus([view({}), view({ id: "b" })], 1, T0)).toBe("3 transfers on the way");
+  });
+
+  it("announces a landing, or a withdrawal waiting for its owner's claim", () => {
+    expect(stageOf(view({}))).toBe("moving");
+    expect(stageOf(view({ phase: "ready" }))).toBe("moving");
+    expect(stageOf(view({ phase: "delivered" }))).toBe("landed");
+    const withdrawal = { direction: "withdraw" as const, destination: { domain: 3, chain: "arbitrum", name: "Arbitrum", mintTx: null, mintTxUrl: null } };
+    expect(stageOf(view({ ...withdrawal, phase: "ready" }))).toBe("claim");
+    expect(stageOf(view({ ...withdrawal, kind: "forward", phase: "ready" }))).toBe("moving");
+    expect(landingMessage(view({ phase: "delivered" }), "landed")).toEqual({
+      title: "25 USDC arrived on Injective",
+      body: "Your transfer from Base was delivered.",
+    });
+    expect(landingMessage(view({ ...withdrawal, phase: "ready" }), "claim").title).toBe("25 USDC is ready to claim on Arbitrum");
   });
 });

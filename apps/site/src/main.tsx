@@ -89,6 +89,7 @@ function App() {
                 onConnectWallet={() => openPicker("evm")}
                 solanaWallet={solana.bridgeWallet}
                 onConnectSolanaWallet={() => openPicker("solana")}
+                tabTitle
               />
               <Link to="/" className="site-new">
                 Start a new transfer
@@ -115,6 +116,7 @@ function App() {
                 onConnectWallet={() => openPicker("evm")}
                 solanaWallet={solana.bridgeWallet}
                 onConnectSolanaWallet={() => openPicker("solana")}
+                tabTitle
               />
             </>
           )}

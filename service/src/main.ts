@@ -24,6 +24,7 @@ import { Health } from "./health.js";
 import { ChainIndexer, ingestTx } from "./indexer.js";
 import { CHOICE_MAINNET, Keeper, routeApi } from "./keeper.js";
 import { createLogger } from "./log.js";
+import { createMintFinder } from "./mintFinder.js";
 import { Relayer } from "./relayer.js";
 import { SolanaIndexer } from "./solanaIndexer.js";
 import { RateLimiter } from "./timing.js";
@@ -109,6 +110,13 @@ const tracker = new Tracker({
     const account = await solanaAccount(solanaRpcUrls, bytes32ToSolana(tokenAccount));
     return account ? (parseTokenAccount(account)?.owner ?? null) : null;
   },
+  findMintTx: createMintFinder({
+    network: config.network,
+    clientFor: reader.clientFor,
+    logOverrides: config.logRpcOverrides,
+    solanaRpcUrls,
+    now,
+  }),
   log,
   now,
 });
@@ -182,6 +190,24 @@ const api = createApi({
       await ingestTx({ chain, network: config.network, client: reader.clientFor(domain), store, ctx, txHash: txHash as Hex, now: now() });
     }
     await tracker.checkTx(domain, txHash);
+  },
+  ingestAnywhere: async (txHash) => {
+    if (!txHash.startsWith("0x")) {
+      if (!solanaIndexer || !solanaChain) return;
+      await solanaIndexer.ingest(txHash);
+      await tracker.checkTx(solanaChain.domain, txHash);
+      return;
+    }
+    // A hash is unique across chains in practice: ask every EVM chain at once.
+    const found = await Promise.all(
+      evmKeys.map(async (key) => {
+        const chain = chainByKey(config.network, key) as EvmChain;
+        const client = reader.clientFor(chain.domain);
+        const rows = await ingestTx({ chain, network: config.network, client, store, ctx, txHash: txHash as Hex, now: now() }).catch(() => []);
+        return rows.length > 0 ? chain.domain : null;
+      }),
+    );
+    for (const domain of found) if (domain !== null) await tracker.checkTx(domain, txHash);
   },
   siteDir: config.siteDir,
 });

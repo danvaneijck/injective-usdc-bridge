@@ -31,6 +31,11 @@ export async function ensureChain(provider: Eip1193Provider, chain: EvmChain): P
         },
       ],
     });
+    // Some wallets add a chain without moving to it (and WalletConnect only
+    // follows a switch), so ask once more.
+    if (Number(await provider.request({ method: "eth_chainId" })) !== chain.chainId) {
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
+    }
   }
 }
 
@@ -56,6 +61,51 @@ export async function sendCall(
     extra = { gas: (gas * 13n) / 10n, ...((await feeOverrides(client, chain)) ?? {}) };
   }
   return wallet.sendTransaction({ account: from, chain: viemChain, to: call.to, data: call.data, value: 0n, ...extra });
+}
+
+/**
+ * Whether the wallet runs several calls as one atomic batch on `chain` right
+ * now (EIP-5792 `atomic: supported`: a smart account, or one already
+ * upgraded). "ready" is left out on purpose: it means the wallet would first
+ * ask to turn the account into a smart account, which is not this page's call
+ * to prompt. Any error reads as no.
+ */
+export async function canBatch(provider: Eip1193Provider, from: Address, chain: EvmChain): Promise<boolean> {
+  // Injective needs its fee and gas pinned per transaction, which a batch cannot carry.
+  if (chain.minPriorityFeeWei !== undefined) return false;
+  try {
+    const wallet = createWalletClient({ account: from, transport: custom(provider) });
+    const caps = (await wallet.getCapabilities({ account: from, chainId: chain.chainId })) as {
+      atomic?: { status?: string };
+      atomicBatch?: { supported?: boolean };
+    };
+    return caps?.atomic?.status === "supported" || caps?.atomicBatch?.supported === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sends `calls` as one atomic batch, one confirmation in the wallet, and
+ * waits for it to land. Returns the hash of the transaction carrying the last
+ * call (with a smart account, every call's).
+ */
+export async function sendBatch(
+  provider: Eip1193Provider,
+  from: Address,
+  chain: EvmChain,
+  calls: { to: Address; data: Hex }[],
+  onSigned?: () => void,
+): Promise<Hex> {
+  await ensureChain(provider, chain);
+  const viemChain = toViemChain(chain);
+  const wallet = createWalletClient({ account: from, chain: viemChain, transport: custom(provider) });
+  const { id } = await wallet.sendCalls({ account: from, chain: viemChain, calls: calls.map((c) => ({ ...c, value: 0n })), forceAtomic: true });
+  onSigned?.();
+  const result = await wallet.waitForCallsStatus({ id, timeout: 300_000 });
+  const last = result.receipts?.at(-1);
+  if (result.status !== "success" || !last) throw new Error("The wallet's batch did not go through");
+  return last.transactionHash;
 }
 
 /** Plain words for a wallet or chain error. */
