@@ -66,6 +66,50 @@ describe("Tracker", () => {
     expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "delivered", minted_by: "unknown" });
   });
 
+  it("dates a delivery only when it saw it arrive", async () => {
+    const attested = { [TX]: [attestedMessage({ src: 6, dst: 29, nonce: NONCE, mintRecipient: addressToBytes32(USER), amount: 10_000_000n })] };
+    const deliveredAt = async (setup: (store: Store, clock: Clock, t: Tracker) => Promise<void>) => {
+      const store = memStore();
+      const clock = new Clock();
+      insertBurn(store, clock);
+      await setup(store, clock, tracker(store, clock, fakeIris(attested), () => true));
+      return { at: store.byTx(6, TX)[0]!.delivered_at, now: clock.t };
+    };
+    // Fresh: found delivered seconds after the burn, so "now" is close enough.
+    const fresh = await deliveredAt(async (_s, clock, t) => {
+      clock.advance(30_000);
+      await t.tick();
+    });
+    expect(fresh.at).toBe(fresh.now);
+    // First met hours later, already delivered: the time is unknown.
+    const late = await deliveredAt(async (_s, clock, t) => {
+      clock.advance(2 * 3_600_000);
+      await t.tick();
+    });
+    expect(late.at).toBeNull();
+    // Checked before and undelivered then: it arrived since.
+    const watched = await deliveredAt(async (store, clock) => {
+      await tracker(store, clock, fakeIris({}), () => false).tick();
+      clock.advance(2 * 3_600_000);
+      await tracker(store, clock, fakeIris(attested), () => true).tick();
+    });
+    expect(watched.at).toBe(watched.now);
+  });
+
+  it("runs one check per transaction even when a lookup and the loop ask together", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    insertBurn(store, clock);
+    clock.advance(2 * 3_600_000);
+    const calls: string[] = [];
+    const attested = { [TX]: [attestedMessage({ src: 6, dst: 29, nonce: NONCE, mintRecipient: addressToBytes32(USER), amount: 10_000_000n })] };
+    const t = tracker(store, clock, fakeIris(attested, calls), () => true);
+    await Promise.all([t.checkTx(6, TX), t.tick()]);
+    expect(calls).toEqual([`get:${TX}`]);
+    // First met delivered two hours on: the second caller must not date it "now".
+    expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "delivered", delivered_at: null });
+  });
+
   it("pairs several burns in one tx with their own messages", async () => {
     const store = memStore();
     const clock = new Clock();

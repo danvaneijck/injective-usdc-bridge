@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TransferView } from "../src/react/api.js";
-import { formatUsdc, parseUsdc, sanitizeAmountInput } from "../src/react/format.js";
+import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput } from "../src/react/format.js";
+import { formatGasAmount, gasNeed, gasWarning } from "../src/react/gas.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
@@ -90,6 +91,28 @@ describe("progressOf", () => {
     expect(progressOf(view({ ...toSolana, kind: "forward" }), T0 + CLAIM_AFTER_MS + 1).canClaim).toBe(true);
     // An older service sends no solanaClaim: nothing to offer.
     expect(progressOf(view({ ...toSolana, kind: "plain", solanaClaim: undefined }), T0 + 1000).canClaim).toBe(false);
+  });
+});
+
+describe("durations and gas", () => {
+  it("reads long waits in days", () => {
+    expect(formatDuration(18_000)).toBe("18 s");
+    expect(formatDuration(173 * 3_600_000 + 12 * 60_000)).toBe("7 days");
+    expect(formatDuration(29 * 3_600_000)).toBe("1 day 5 h");
+    expect(formatDuration(24 * 3_600_000)).toBe("1 day");
+    expect(formatDuration(5 * 3_600_000 + 60_000)).toBe("5 h 1 min");
+  });
+
+  it("warns before signing when the source chain's gas is missing or short", () => {
+    const need = gasNeed(1_180_000_000n); // Injective's pinned fee
+    expect(formatGasAmount(need)).toBe("0.00085");
+    expect(gasWarning({ balance: 0n, need }, "INJ", "Injective")).toBe(
+      "This wallet has no INJ on Injective to pay for gas. Sending needs about 0.00085 INJ; add some first.",
+    );
+    expect(gasWarning({ balance: need / 2n, need }, "ETH", "Base")).toMatch(/^This wallet may not have enough ETH on Base for gas: it has 0.00042/);
+    expect(gasWarning({ balance: need, need }, "ETH", "Base")).toBeNull();
+    expect(gasWarning(null, "ETH", "Base")).toBeNull();
+    expect(formatGasAmount(1_920_000_000_000n)).toBe("0.0000019");
   });
 });
 

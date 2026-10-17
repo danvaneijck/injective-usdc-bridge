@@ -295,8 +295,15 @@ Choice v2 look, themeable):
 - Activity: the service's list for the wallet plus journal entries it has
   not returned yet, each looked up by hash (which makes the service index it).
 - Chain logos are web3icons' brand-colour marks (MIT, see
-  `packages/bridge/THIRD_PARTY_NOTICES.md`) for all 17 chains, rendered as
-  `<img>` data URLs in circles; an unknown chain gets a lettered disc.
+  `packages/bridge/THIRD_PARTY_NOTICES.md`) for 16 chains, and Solana's own
+  current logomark (solana.com/branding, unaltered on black, as its brand
+  rules ask), rendered as `<img>` data URLs in circles; an unknown chain gets
+  a lettered disc. Order everywhere is the registry's: Injective, Solana,
+  HyperEVM (the most used, 2026-10-17), then the rest.
+- Before signing on an EVM chain the form reads the sender's native balance
+  and warns (never blocks: sponsored-gas wallets send with none) when it is
+  under approve plus burn at today's gas price (600k gas, measured on
+  Injective).
 - Chains are picked from a sheet that slides up over the widget (never over
   the host page, so an embedding app's stacking stays out of it): search,
   arrow keys, Escape, focus kept inside. Motion is CSS only and collapses under

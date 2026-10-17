@@ -127,6 +127,29 @@ describe("Solana indexer", () => {
     store.close();
   });
 
+  it("forgets delivery dates that were only the moment an old transfer was noticed, once", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "iub-")), "bridge.db");
+    const burn = 1_792_000_000;
+    const seen = (burn + 7 * 86_400) * 1000; // looked up a week after the burn
+    const old = new Store(path);
+    const [b] = burnsInTransaction(BURN);
+    const rows = [0, 1].map((logIndex) =>
+      toNewTransfer({ ...b!.burn, depositor: b!.owner }, { srcDomain: 5, txHash: BURN.signature, logIndex, blockNumber: 1n, blockTime: burn }, ctx),
+    );
+    old.insertTransfers(rows, seen);
+    old.update(rows[0]!, { phase: "delivered", delivered_at: seen + 5_000, minted_by: "unknown" }, seen);
+    old.update(rows[1]!, { phase: "delivered", delivered_at: seen + 5_000, minted_by: "relayer" }, seen);
+    old.db.prepare("DELETE FROM meta").run(); // as a database from before the fix
+    old.close();
+
+    const store = new Store(path);
+    expect(store.get(5, BURN.signature, 0)!.delivered_at).toBeNull();
+    expect(store.get(5, BURN.signature, 1)!.delivered_at).toBe(seen + 5_000); // our relayer's own mint time stands
+    store.update(rows[0]!, { delivered_at: 123 }, seen);
+    store.close();
+    expect(new Store(path).get(5, BURN.signature, 0)!.delivered_at).toBe(123); // the fix ran once
+  });
+
   it("starts from the lookback, not from the beginning of Solana", async () => {
     const { fetchImpl } = fakeRpc({ slot: 500_000_000 });
     const { ix, store } = indexer(fetchImpl);

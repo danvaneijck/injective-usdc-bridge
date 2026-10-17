@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS transfers (
 CREATE INDEX IF NOT EXISTS transfers_due ON transfers (phase, next_check_at);
 CREATE INDEX IF NOT EXISTS transfers_depositor ON transfers (depositor, block_number);
 CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers (recipient, block_number);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cursors (
   chain_key TEXT PRIMARY KEY,
   block INTEGER NOT NULL,
@@ -141,6 +145,29 @@ export class Store {
     // Columns added after the first deploy; CREATE TABLE IF NOT EXISTS skips them on an existing file.
     const columns = new Set((this.db.prepare("PRAGMA table_info(transfers)").all() as { name: string }[]).map((c) => c.name));
     if (!columns.has("event_account")) this.db.exec("ALTER TABLE transfers ADD COLUMN event_account TEXT");
+    // Before 2026-10-17 a transfer first met already delivered (a backfill, an
+    // old lookup) was dated when the service noticed it. Forget those dates:
+    // seen well after the burn, marked delivered at first sight, by someone
+    // other than our relayer, with no mint tx to read a time from.
+    this.once("delivered_at_unknown", () =>
+      this.db
+        .prepare(
+          `UPDATE transfers SET delivered_at = NULL
+           WHERE delivered_at IS NOT NULL AND mint_tx IS NULL AND COALESCE(minted_by, '') <> 'relayer'
+             AND first_seen - COALESCE(block_time * 1000, first_seen) > 300000
+             AND delivered_at - first_seen < 600000`,
+        )
+        .run(),
+    );
+  }
+
+  /** Runs a data fix once per database. */
+  private once(key: string, fix: () => void): void {
+    if (this.db.prepare("SELECT 1 FROM meta WHERE key = ?").get(key)) return;
+    this.db.transaction(() => {
+      fix();
+      this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(key, new Date().toISOString());
+    })();
   }
 
   close(): void {

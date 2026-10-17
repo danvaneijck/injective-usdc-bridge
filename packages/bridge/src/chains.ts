@@ -77,6 +77,8 @@ export const INJECTIVE_DOMAIN = 29;
 
 const evm = (c: Omit<EvmChain, "kind">): EvmChain => ({ kind: "evm", ...c });
 
+// Display order (chain picker, logo row, status page): Injective, then the most
+// used peers, then the rest.
 const MAINNET: readonly Chain[] = [
   evm({
     key: "injective",
@@ -95,6 +97,38 @@ const MAINNET: readonly Chain[] = [
     fastSource: false,
     forwarding: false,
     minPriorityFeeWei: 1_000_000_000n,
+  }),
+  {
+    kind: "solana",
+    key: "solana",
+    name: "Solana",
+    domain: 5,
+    usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    nativeSymbol: "SOL",
+    // Published by Choice's v1 bridge for the same purpose (14 accounts, domain 29).
+    receiveLookupTable: "2LLzhRZEoMtbzJftuH9XfMdo2HyaMA55Pbmhn7NYNWX5",
+    rpcUrls: ["https://solana-rpc.publicnode.com"],
+    explorerTx: "https://solscan.io/tx/{hash}",
+    fastSource: true,
+    forwarding: true,
+  },
+  evm({
+    key: "hyperevm",
+    name: "HyperEVM",
+    domain: 19,
+    chainId: 999,
+    usdc: "0xb88339CB7199b77E23DB6E890353E22632Ba630f",
+    nativeSymbol: "HYPE",
+    blockTimeMs: 1_000,
+    rpcUrls: ["https://rpc.hyperliquid.xyz/evm"],
+    // Public endpoint allows ~7 requests per IP, then refuses everything (every
+    // method, not just getLogs) for ~25 s: about 10 a minute (measured 2026-10-16
+    // from two IPs). It says "rate limited" or "Request exceeds defined limit".
+    // 200 blocks works at any age.
+    logRpcs: [{ url: "https://rpc.hyperliquid.xyz/evm", span: 200, minIntervalMs: 7_000 }],
+    explorerTx: "https://hyperevmscan.io/tx/{hash}",
+    fastSource: false,
+    forwarding: true,
   }),
   evm({
     key: "ethereum",
@@ -284,24 +318,6 @@ const MAINNET: readonly Chain[] = [
     forwarding: true,
   }),
   evm({
-    key: "hyperevm",
-    name: "HyperEVM",
-    domain: 19,
-    chainId: 999,
-    usdc: "0xb88339CB7199b77E23DB6E890353E22632Ba630f",
-    nativeSymbol: "HYPE",
-    blockTimeMs: 1_000,
-    rpcUrls: ["https://rpc.hyperliquid.xyz/evm"],
-    // Public endpoint allows ~7 requests per IP, then refuses everything (every
-    // method, not just getLogs) for ~25 s: about 10 a minute (measured 2026-10-16
-    // from two IPs). It says "rate limited" or "Request exceeds defined limit".
-    // 200 blocks works at any age.
-    logRpcs: [{ url: "https://rpc.hyperliquid.xyz/evm", span: 200, minIntervalMs: 7_000 }],
-    explorerTx: "https://hyperevmscan.io/tx/{hash}",
-    fastSource: false,
-    forwarding: true,
-  }),
-  evm({
     key: "monad",
     name: "Monad",
     domain: 15,
@@ -357,20 +373,6 @@ const MAINNET: readonly Chain[] = [
     fastSource: true,
     forwarding: true,
   }),
-  {
-    kind: "solana",
-    key: "solana",
-    name: "Solana",
-    domain: 5,
-    usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    nativeSymbol: "SOL",
-    // Published by Choice's v1 bridge for the same purpose (14 accounts, domain 29).
-    receiveLookupTable: "2LLzhRZEoMtbzJftuH9XfMdo2HyaMA55Pbmhn7NYNWX5",
-    rpcUrls: ["https://solana-rpc.publicnode.com"],
-    explorerTx: "https://solscan.io/tx/{hash}",
-    fastSource: true,
-    forwarding: true,
-  },
 ];
 
 const TESTNET: readonly Chain[] = [

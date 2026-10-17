@@ -1,6 +1,11 @@
 # Third-party notices
 
-The chain logos in `src/react/logos.ts` are from web3icons
+The Solana logo in `src/react/logos.ts` is the Solana Foundation's logomark
+(https://solana.com/branding), a trademark of the Solana Foundation, used
+unaltered to name the Solana network. It implies no sponsorship, endorsement
+or affiliation.
+
+The other chain logos in `src/react/logos.ts` are from web3icons
 (https://github.com/0xa3k5/web3icons, the "background" network variant),
 used under the MIT License:
 

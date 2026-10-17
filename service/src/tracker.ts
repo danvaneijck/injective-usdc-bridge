@@ -15,6 +15,8 @@ import { type RateLimiter, attestingDelay, expectedAttestMs, notFoundDelay, read
 
 const OPEN: Phase[] = ["not_found", "attesting", "ready", "expired"];
 const REATTEST_EVERY_MS = 10 * 60_000;
+/** A transfer found delivered this soon after its burn is dated "now"; later, the time is unknown. */
+const FRESH_DELIVERY_MS = 5 * 60_000;
 
 export interface TrackerDeps {
   store: Store;
@@ -44,6 +46,7 @@ interface Attested {
 
 export class Tracker {
   private readonly lastReattest = new Map<string, number>();
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(private readonly d: TrackerDeps) {}
 
@@ -63,7 +66,21 @@ export class Tracker {
     return due.length;
   }
 
-  async checkTx(srcDomain: number, txHash: string): Promise<void> {
+  /**
+   * One check per transaction at a time: a lookup's check and the loop's can
+   * land together, and a second pass reading the first's half-written row
+   * would take its check stamp for an earlier, undelivered sighting.
+   */
+  checkTx(srcDomain: number, txHash: string): Promise<void> {
+    const key = `${srcDomain}:${txHash}`;
+    const running = this.inFlight.get(key);
+    if (running) return running;
+    const check = this.check(srcDomain, txHash).finally(() => this.inFlight.delete(key));
+    this.inFlight.set(key, check);
+    return check;
+  }
+
+  private async check(srcDomain: number, txHash: string): Promise<void> {
     const rows = this.d.store.byTx(srcDomain, txHash).filter((r) => OPEN.includes(r.phase));
     if (rows.length === 0) return;
     await this.fillSolanaRecipients(rows);
@@ -141,12 +158,18 @@ export class Tracker {
       if (deliveredAt === null && mintTx && this.d.txTime) {
         deliveredAt = await this.d.txTime(row.dst_domain, mintTx).catch(() => null);
       }
+      // Without a mint time, "now" is only right if we watched it arrive: an
+      // earlier check found it undelivered, or the burn is too fresh for the
+      // gap to matter. A transfer first met already delivered (a backfill, an
+      // old lookup) arrived at some unknown time; say nothing rather than
+      // show the moment we noticed as its delivery.
+      if (deliveredAt === null && (row.checked_at !== null || now - burnedAt(row) <= FRESH_DELIVERY_MS)) deliveredAt = now;
       this.d.store.update(
         row,
         {
           ...base,
           phase: "delivered",
-          delivered_at: deliveredAt ?? now,
+          delivered_at: deliveredAt,
           mint_tx: mintTx,
           minted_by: mintedBy,
           next_check_at: Number.MAX_SAFE_INTEGER,

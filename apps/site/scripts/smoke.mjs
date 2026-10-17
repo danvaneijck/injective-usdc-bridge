@@ -8,6 +8,9 @@
  *   npm run dev &   # or point SITE_URL at a deployed site
  *   WALLET=0x... node scripts/smoke.mjs
  *
+ * NO_GAS_ON=<chain name> checks the missing-gas warning on a chain where
+ * WALLET holds none of the gas token (deposits start on Base).
+ *
  * REFUND=<payer>:<sig>[,<sig>] also checks the Solana deposit refund: the
  * signatures are burns from Solana older than 5 days whose deposits are still
  * open, and the stand-in Solana wallet takes the payer's address. Reclaim is
@@ -25,6 +28,8 @@ const WALLET = process.env.WALLET;
 const SOL_WALLET = process.env.SOL_WALLET ?? "CeeVcSmNej5z8zKaaoX4TUG1su7i3vPHut52vViNdeBi";
 const TRACK = process.env.TRACK; // "<domain>/<txHash>" to open a tracking page
 const REFUND = process.env.REFUND;
+/** A chain where WALLET holds no gas token, e.g. "Base": the form must warn before signing. */
+const NO_GAS_ON = process.env.NO_GAS_ON;
 const OUT = process.env.OUT ?? "./smoke-out";
 if (!WALLET) throw new Error("WALLET=0x... is required");
 mkdirSync(OUT, { recursive: true });
@@ -112,10 +117,18 @@ await check("offers the gas drop on deposits", async () => {
   await page.screenshot({ path: `${OUT}/1-deposit.png` });
 });
 
-await check("picks a chain from the sheet", async () => {
+if (NO_GAS_ON) {
+  await check(`warns that the wallet has no gas on ${NO_GAS_ON}`, async () => {
+    await page.getByText(new RegExp(`This wallet has no \\w+ on ${NO_GAS_ON} to pay for gas`)).waitFor({ timeout: 20_000 });
+  });
+}
+
+await check("picks a chain from the sheet, the popular ones first", async () => {
   await page.getByRole("button", { name: /^Base/ }).first().click();
   const sheet = page.getByRole("dialog", { name: "Bridge from" });
   await sheet.waitFor();
+  const rows = await sheet.locator(".iub-chains button").allInnerTexts();
+  if (!rows[0]?.startsWith("Solana") || !rows[1]?.startsWith("HyperEVM")) throw new Error(`list starts ${JSON.stringify(rows.slice(0, 3))}`);
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/2-chains.png` });
   await sheet.getByRole("button", { name: /Arbitrum/ }).click();
@@ -204,7 +217,11 @@ if (REFUND) {
   const sigs = list.split(",");
   await check("offers a Solana burn's deposit back, built and simulated up to the signature", async () => {
     const r = await open({ width: 1280, height: 900 }, payer);
-    for (const sig of sigs.slice(1)) await r.goto(`${SITE}/tx/5/${sig}`); // has the service index them too
+    // Opening each burn's page has the service index it; wait until it shows.
+    for (const sig of sigs.slice(1)) {
+      await r.goto(`${SITE}/tx/5/${sig}`);
+      await r.getByText(/^[\d,.]+ USDC$/).first().waitFor({ timeout: 60_000 });
+    }
     await r.goto(`${SITE}/tx/5/${sigs[0]}`);
     await r.getByRole("button", { name: "Connect a Solana wallet to reclaim it" }).click({ timeout: 60_000 });
     await r.getByRole("button", { name: "Smoke Solana" }).click();

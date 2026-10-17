@@ -12,7 +12,8 @@ import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useUsdcBalance } from "./hooks.js";
+import { gasWarning } from "./gas.js";
+import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useSourceGas, useUsdcBalance } from "./hooks.js";
 import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconWallet, Spinner } from "./icons.js";
 import { sendWithSolanaWallet } from "./solanaSend.js";
 import type { Eip1193Provider, SolanaWallet } from "./types.js";
@@ -111,6 +112,8 @@ export function BridgeForm({
 
   const balance = useUsdcBalance(env, source, sender);
   const solBalance = useSolBalance(env, fromSolana ? solAddress : null);
+  const gas = useSourceGas(env, source, fromSolana ? null : address);
+  const gasNote = gasWarning(gas, source.nativeSymbol, source.name);
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
   const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
   const recipientSetup = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
@@ -422,6 +425,7 @@ export function BridgeForm({
           </div>
         ) : null}
 
+        {gasNote && !busy ? <Note tone="warn">{gasNote}</Note> : null}
         {error ? <Note tone="error">{error}</Note> : null}
 
         <button type="button" className={busy ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={!action.enabled} onClick={action.run}>

@@ -46,7 +46,11 @@ export function formatDuration(ms: number): string {
   const m = Math.round(s / 60);
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
-  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  if (h < 24) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  // Past a day minutes are noise: "1 day 5 h", then "7 days".
+  const d = Math.floor(h / 24);
+  if (d >= 2) return `${d} days`;
+  return h % 24 ? `1 day ${h % 24} h` : "1 day";
 }
 
 export function timeAgo(iso: string | null, now: number): string {

@@ -6,10 +6,11 @@ import { BRIDGE_RECEIVER, type Network, type Speed } from "../constants.js";
 import { type GasDropConfig, readGasDropConfig } from "../gasDrop.js";
 import { IrisClient } from "../iris.js";
 import { type Quote, RouteError, quoteTransfer } from "../quote.js";
-import { publicClientFor } from "../rpc.js";
+import { feeOverrides, publicClientFor } from "../rpc.js";
 import { type SolanaRecipientCheck, checkSolanaRecipient, isSolanaAddress, solanaBalance, solanaTokenBalance } from "../solana.js";
 import { type MessageSentAccount, readMessageSentAccounts } from "../solanaClaim.js";
 import { BridgeApi, type LaneHealth, type TransferView } from "./api.js";
+import { gasNeed } from "./gas.js";
 import { Journal, type JournalEntry } from "./journal.js";
 import { DEFAULT_API_URL } from "./types.js";
 
@@ -125,6 +126,24 @@ export function useSolanaRecipient(env: Env, chain: Chain, owner: string | null)
     valid ? `solrcpt:${owner}` : null,
     () => checkSolanaRecipient(env.solanaRpc, owner!, (chain as { usdcMint: string }).usdcMint),
     60_000,
+  ).data;
+}
+
+/** The sender's native balance on an EVM source chain, and the gas a send there needs. Null on Solana. */
+export function useSourceGas(env: Env, chain: Chain, owner: string | null): { balance: bigint; need: bigint } | null {
+  return usePoll(
+    chain.kind === "evm" && owner ? `gas:${chain.key}:${owner}` : null,
+    async () => {
+      const c = chain as EvmChain;
+      const client = env.clientFor(c);
+      // Injective bills the whole limit at the pinned max fee, which is what the wallet will sign.
+      const [balance, fee] = await Promise.all([
+        client.getBalance({ address: owner as Address }),
+        feeOverrides(client, c).then((f) => f?.maxFeePerGas ?? client.getGasPrice()),
+      ]);
+      return { balance, need: gasNeed(fee) };
+    },
+    30_000,
   ).data;
 }
 
