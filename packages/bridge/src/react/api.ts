@@ -1,4 +1,5 @@
 /** Client for the bridge service's public API (service/src/api.ts). */
+import type { Hex } from "viem";
 
 export type Phase = "not_found" | "attesting" | "ready" | "expired" | "delivered";
 
@@ -35,6 +36,10 @@ export interface TransferView {
   deliveredAt: string | null;
   /** A call anyone may send to finish an attested, unminted transfer. */
   claim: { chainId: number; to: string; data: string } | null;
+  /** Transfers to Solana: what a Solana wallet needs to finish one itself. Absent from older services. */
+  solanaClaim?: { message: Hex; attestation: Hex } | null;
+  /** Transfers from Solana: the burn's event account, whose rent the depositor can take back from `availableAt`. */
+  solanaRefund?: { eventAccount: string; message: Hex; attestation: Hex; availableAt: string } | null;
 }
 
 export interface LaneHealth {

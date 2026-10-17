@@ -1,5 +1,5 @@
 import { type Address, formatUnits } from "viem";
-import { type Network, USDC_DECIMALS, chainByDomain, expectedAttestMs, explorerTxUrl } from "injective-usdc-bridge";
+import { EVENT_ACCOUNT_REFUND_DELAY_SEC, type Network, USDC_DECIMALS, chainByDomain, expectedAttestMs, explorerTxUrl } from "injective-usdc-bridge";
 import type { TransferRow } from "./db.js";
 import { relayCallFor } from "./relayer.js";
 
@@ -46,6 +46,32 @@ export function toView(row: TransferRow, network: Network, bridgeReceiver?: Addr
     attestedAt: iso(row.attested_at),
     deliveredAt: iso(row.delivered_at),
     claim: claimFor(row, network, bridgeReceiver),
+    solanaClaim: solanaClaimFor(row, network),
+    solanaRefund: solanaRefundFor(row, network),
+  };
+}
+
+/** What a Solana wallet needs to finish an attested transfer to Solana itself (buildSolanaClaim). */
+function solanaClaimFor(row: TransferRow, network: Network) {
+  if (row.phase !== "ready" || !row.message || !row.attestation) return null;
+  if (chainByDomain(network, row.dst_domain)?.kind !== "solana") return null;
+  return { message: row.message, attestation: row.attestation };
+}
+
+/**
+ * A burn from Solana parks rent in its event account; once Circle's window
+ * passes, the depositor can take it back (buildSolanaRefund). Whether it
+ * still exists is for the client to check on chain.
+ */
+function solanaRefundFor(row: TransferRow, network: Network) {
+  if (!row.event_account || !row.message || !row.attestation) return null;
+  if (chainByDomain(network, row.src_domain)?.kind !== "solana") return null;
+  const burnedAt = row.block_time ?? Math.floor(row.first_seen / 1000);
+  return {
+    eventAccount: row.event_account,
+    message: row.message,
+    attestation: row.attestation,
+    availableAt: iso((burnedAt + EVENT_ACCOUNT_REFUND_DELAY_SEC) * 1000),
   };
 }
 

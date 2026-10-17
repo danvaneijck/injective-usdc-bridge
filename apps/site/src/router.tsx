@@ -36,6 +36,7 @@ export function Link({ to, className, children, ...rest }: { to: string; classNa
 }
 
 export function txRoute(path: string): { domain: number; txHash: string } | null {
-  const m = /^\/tx\/(\d+)\/(0x[0-9a-fA-F]{64})\/?$/.exec(path);
+  // EVM transaction hashes, or base58 Solana signatures (64 bytes, 87-88 characters).
+  const m = /^\/tx\/(\d+)\/(0x[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{64,90})\/?$/.exec(path);
   return m ? { domain: Number(m[1]), txHash: m[2]! } : null;
 }

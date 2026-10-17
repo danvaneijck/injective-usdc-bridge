@@ -230,6 +230,92 @@ export function compileLegacyMessage(feePayer: string, instructions: SolanaInstr
   return { bytes: new Uint8Array(out), signers };
 }
 
+/** An address lookup table as read from chain: entries keep their index for life (tables are append-only). */
+export interface AddressLookupTable {
+  address: string;
+  addresses: readonly string[];
+}
+
+/**
+ * Version 0 message, compiled as @solana/web3.js' compileToV0Message does:
+ * every account that is neither a signer nor an invoked program and appears
+ * in a table is loaded from it; the rest stay inline in legacy order. Loaded
+ * accounts index after the inline ones, all writable before all read-only.
+ */
+export function compileV0Message(
+  feePayer: string,
+  instructions: SolanaInstruction[],
+  recentBlockhash: string,
+  tables: readonly AddressLookupTable[],
+): CompiledMessage {
+  const metas = new Map<string, { signer: boolean; writable: boolean; invoked: boolean }>();
+  const touch = (key: string, signer: boolean, writable: boolean, invoked = false) => {
+    const m = metas.get(key) ?? { signer: false, writable: false, invoked: false };
+    m.signer ||= signer;
+    m.writable ||= writable;
+    m.invoked ||= invoked;
+    metas.set(key, m);
+  };
+  touch(feePayer, true, true);
+  for (const ix of instructions) {
+    touch(ix.programId, false, false, true);
+    for (const k of ix.keys) touch(k.pubkey, k.isSigner, k.isWritable);
+  }
+
+  const lookups: { address: string; writable: number[]; readonly: number[] }[] = [];
+  const loadedWritable: string[] = [];
+  const loadedReadonly: string[] = [];
+  for (const table of tables) {
+    const drain = (writable: boolean) => {
+      const indexes: number[] = [];
+      const keys: string[] = [];
+      for (const [key, m] of metas) {
+        if (m.signer || m.invoked || m.writable !== writable) continue;
+        const i = table.addresses.indexOf(key);
+        if (i < 0) continue;
+        if (i > 255) throw new Error("Lookup table index out of range");
+        indexes.push(i);
+        keys.push(key);
+        metas.delete(key);
+      }
+      return { indexes, keys };
+    };
+    const w = drain(true);
+    const r = drain(false);
+    if (w.indexes.length === 0 && r.indexes.length === 0) continue;
+    lookups.push({ address: table.address, writable: w.indexes, readonly: r.indexes });
+    loadedWritable.push(...w.keys);
+    loadedReadonly.push(...r.keys);
+  }
+
+  const all = [...metas.entries()];
+  const group = (signer: boolean, writable: boolean) =>
+    all.filter(([, m]) => m.signer === signer && m.writable === writable).map(([k]) => k);
+  const keys = [...group(true, true), ...group(true, false), ...group(false, true), ...group(false, false)];
+  const index = new Map([...keys, ...loadedWritable, ...loadedReadonly].map((k, i) => [k, i]));
+  const signers = keys.filter((k) => metas.get(k)!.signer);
+
+  const out: number[] = [0x80, signers.length, group(true, false).length, group(false, false).length, ...shortVec(keys.length)];
+  for (const k of keys) out.push(...base58.decode(k));
+  out.push(...base58.decode(recentBlockhash));
+  out.push(...shortVec(instructions.length));
+  for (const ix of instructions) {
+    out.push(index.get(ix.programId)!);
+    out.push(...shortVec(ix.keys.length), ...ix.keys.map((k) => index.get(k.pubkey)!));
+    out.push(...shortVec(ix.data.length), ...ix.data);
+  }
+  out.push(...shortVec(lookups.length));
+  for (const l of lookups) {
+    out.push(...base58.decode(l.address));
+    out.push(...shortVec(l.writable.length), ...l.writable);
+    out.push(...shortVec(l.readonly.length), ...l.readonly);
+  }
+  return { bytes: new Uint8Array(out), signers };
+}
+
+/** Solana's hard limit on a whole wire transaction. */
+export const SOLANA_MAX_TRANSACTION_BYTES = 1232;
+
 /** Wire transaction: signature count, signatures (zeros where still missing), message. */
 export function serializeTransaction(message: CompiledMessage, signatures: Map<string, Uint8Array>): Uint8Array {
   const head = shortVec(message.signers.length);
@@ -250,12 +336,64 @@ export function transactionSignature(wire: Uint8Array): string {
   return base58.encode(sig);
 }
 
-// ── Building a burn ──────────────────────────────────────────────────────────
+// ── Simulate, then budget ────────────────────────────────────────────────────
 
 /** Bounds on the priority fee, in lamports for the whole transaction (v1's, in use since August). */
 const MIN_PRIORITY_LAMPORTS = 10_000;
 const MAX_PRIORITY_LAMPORTS = 200_000;
 const COMPUTE_FALLBACK = 200_000;
+
+export interface PreparedSolanaTransaction {
+  message: CompiledMessage;
+  lastValidBlockHeight: number;
+  /** Signature fees plus the priority fee, in lamports. */
+  feeLamports: bigint;
+}
+
+/**
+ * Simulates the instructions (a transaction the program would reject is
+ * refused here with its reason, before anyone signs), then compiles them
+ * behind a compute limit sized from the simulation and a priority fee priced
+ * off recent fees on `priorityAccounts`. Legacy without tables, v0 with them.
+ */
+export async function prepareSolanaTransaction(p: {
+  rpcUrls: readonly string[];
+  payer: string;
+  instructions: SolanaInstruction[];
+  priorityAccounts: string[];
+  tables?: readonly AddressLookupTable[];
+  fetchImpl?: typeof fetch;
+}): Promise<PreparedSolanaTransaction> {
+  const rpc = <T>(method: string, params: unknown[]) => solanaRpc<T>(p.rpcUrls, method, params, p.fetchImpl);
+  const compile = (ixs: SolanaInstruction[], blockhash: string) =>
+    p.tables ? compileV0Message(p.payer, ixs, blockhash, p.tables) : compileLegacyMessage(p.payer, ixs, blockhash);
+
+  const { value: latest } = await rpc<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [
+    { commitment: "confirmed" },
+  ]);
+
+  // Simulate with a generous limit to learn the real compute use.
+  const probe = compile([...computeBudgetInstructions(400_000, 0), ...p.instructions], latest.blockhash);
+  const size = serializeTransaction(probe, new Map()).length;
+  if (size > SOLANA_MAX_TRANSACTION_BYTES) {
+    throw new Error(`Solana transaction is ${size} bytes, over the ${SOLANA_MAX_TRANSACTION_BYTES}-byte limit`);
+  }
+  const sim = await rpc<{ value: { err: unknown; logs: string[] | null; unitsConsumed?: number } }>("simulateTransaction", [
+    base64.encode(serializeTransaction(probe, new Map())),
+    { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" },
+  ]);
+  if (sim.value.err) throw new SolanaSimulationError(sim.value.err, sim.value.logs ?? []);
+  const units = sim.value.unitsConsumed ? Math.ceil(sim.value.unitsConsumed * 1.2) + 1_000 : COMPUTE_FALLBACK;
+
+  const recent = await rpc<{ prioritizationFee: number }[]>("getRecentPrioritizationFees", [p.priorityAccounts]).catch(() => []);
+  const microLamports = priorityMicroLamports(recent.map((r) => r.prioritizationFee), units);
+
+  const message = compile([...computeBudgetInstructions(units, microLamports), ...p.instructions], latest.blockhash);
+  const feeLamports = BigInt(5_000 * message.signers.length) + BigInt(Math.ceil((units * microLamports) / 1e6));
+  return { message, lastValidBlockHeight: latest.lastValidBlockHeight, feeLamports };
+}
+
+// ── Building a burn ──────────────────────────────────────────────────────────
 
 export interface SolanaBurnPlan {
   /** Signed by the one-off event account; the owner's signature goes in next. */
@@ -298,7 +436,6 @@ export async function buildSolanaBurn(opts: BuildSolanaBurnOptions): Promise<Sol
   if (!isAddress(opts.recipient)) throw new RouteError(`Recipient ${opts.recipient} is not an EVM address`);
   const chain: SolanaChain = route.source;
   const rpcUrls = opts.rpcUrls ?? chain.rpcUrls;
-  const rpc = <T>(method: string, params: unknown[]) => solanaRpc<T>(rpcUrls, method, params, opts.fetchImpl);
 
   let mintRecipient: Hex;
   let destinationCaller: Hex;
@@ -330,35 +467,25 @@ export async function buildSolanaBurn(opts: BuildSolanaBurnOptions): Promise<Sol
     },
   });
 
-  const { value: latest } = await rpc<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [
-    { commitment: "confirmed" },
-  ]);
-
-  // Simulate with a generous limit to learn the real compute use.
-  const probe = compileLegacyMessage(opts.owner, [...computeBudgetInstructions(400_000, 0), burn], latest.blockhash);
-  const sim = await rpc<{ value: { err: unknown; logs: string[] | null; unitsConsumed?: number } }>("simulateTransaction", [
-    base64.encode(serializeTransaction(probe, new Map())),
-    { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" },
-  ]);
-  if (sim.value.err) throw new SolanaSimulationError(sim.value.err, sim.value.logs ?? []);
-  const units = sim.value.unitsConsumed ? Math.ceil(sim.value.unitsConsumed * 1.2) + 1_000 : COMPUTE_FALLBACK;
-
-  const recent = await rpc<{ prioritizationFee: number }[]>("getRecentPrioritizationFees", [
-    [chain.usdcMint, findProgramAddress([utf8("message_transmitter")], SOLANA_MESSAGE_TRANSMITTER_V2)],
-  ]).catch(() => []);
-  const microLamports = priorityMicroLamports(recent.map((r) => r.prioritizationFee), units);
-
-  const message = compileLegacyMessage(opts.owner, [...computeBudgetInstructions(units, microLamports), burn], latest.blockhash);
+  const prepared = await prepareSolanaTransaction({
+    rpcUrls,
+    payer: opts.owner,
+    instructions: [burn],
+    priorityAccounts: [chain.usdcMint, findProgramAddress([utf8("message_transmitter")], SOLANA_MESSAGE_TRANSMITTER_V2)],
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  const { message } = prepared;
   const transaction = serializeTransaction(message, new Map([[eventAccount, ed25519.sign(message.bytes, eventKey)]]));
 
-  const rent = await rpc<number>("getMinimumBalanceForRentExemption", [eventAccountSize(hookData)]).catch(() => 4_600_000);
-  const costLamports = BigInt(5_000 * message.signers.length) + BigInt(Math.ceil((units * microLamports) / 1e6)) + BigInt(rent);
+  const rent = await solanaRpc<number>(rpcUrls, "getMinimumBalanceForRentExemption", [eventAccountSize(hookData)], opts.fetchImpl).catch(
+    () => 4_600_000,
+  );
 
   return {
     transaction,
     eventAccount,
-    lastValidBlockHeight: latest.lastValidBlockHeight,
-    costLamports,
+    lastValidBlockHeight: prepared.lastValidBlockHeight,
+    costLamports: prepared.feeLamports + BigInt(rent),
     mintRecipient,
     destinationCaller,
     hookData: hookData ?? "0x",
@@ -395,6 +522,9 @@ function describeSimulationFailure(err: unknown, logs: string[]): string {
   if (/insufficient lamports|InsufficientFundsForRent|AccountNotFound|"InsufficientFundsForFee"/.test(text)) return "Not enough SOL for the network fee";
   if (/insufficient funds/.test(text)) return "Not enough USDC on Solana";
   if (/Denylisted/.test(text)) return "This wallet cannot use CCTP";
+  // receive_message creates the nonce's account; it exists once the mint happened.
+  if (/already in use/.test(text)) return "This transfer was already delivered";
+  if (/EventAccountWindowNotExpired/.test(text)) return "The deposit can be refunded 5 days after the transfer";
   const program = logs.find((l) => /Error Message:/.test(l));
   return program ? program.replace(/.*Error Message:\s*/, "") : `Simulation failed: ${JSON.stringify(err)}`;
 }

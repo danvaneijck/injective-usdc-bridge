@@ -63,6 +63,12 @@ export interface SolanaChain extends ChainBase {
   kind: "solana";
   usdcMint: string;
   nativeSymbol: "SOL";
+  /**
+   * Address lookup table holding receive_message's fixed accounts, which a
+   * claim needs to fit in one transaction. Its entries are read from chain,
+   * so a wrong table can only fail the claim, never misdirect it.
+   */
+  receiveLookupTable?: string;
 }
 
 export type Chain = EvmChain | SolanaChain;
@@ -358,6 +364,8 @@ const MAINNET: readonly Chain[] = [
     domain: 5,
     usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     nativeSymbol: "SOL",
+    // Published by Choice's v1 bridge for the same purpose (14 accounts, domain 29).
+    receiveLookupTable: "2LLzhRZEoMtbzJftuH9XfMdo2HyaMA55Pbmhn7NYNWX5",
     rpcUrls: ["https://solana-rpc.publicnode.com"],
     explorerTx: "https://solscan.io/tx/{hash}",
     fastSource: true,

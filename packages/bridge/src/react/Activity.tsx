@@ -1,13 +1,17 @@
-import type { CSSProperties, ReactNode } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 import { chainByDomain } from "../chains.js";
 import { USDC_DECIMALS } from "../constants.js";
+import type { TransferView } from "./api.js";
 import { ChainLogo, ChainPair } from "./ChainLogo.js";
 import { formatAmount, timeAgo } from "./format.js";
 import type { ActivityItem, Env } from "./hooks.js";
-import { useNow } from "./hooks.js";
-import { IconArrow, IconChevronRight, IconInbox, IconWallet } from "./icons.js";
+import { useNow, useSolanaEventAccounts } from "./hooks.js";
+import { IconAlert, IconArrow, IconChevronRight, IconInbox, IconWallet, Spinner } from "./icons.js";
 import { progressOf } from "./progress.js";
+import { reclaimDeposit, refundState } from "./refunds.js";
 import { StatusPill } from "./TransferStatus.js";
+import type { SolanaWallet } from "./types.js";
+import { friendlyError } from "./wallet.js";
 
 export function Activity({
   env,
@@ -18,6 +22,7 @@ export function Activity({
   onOpen,
   onStart,
   onConnectWallet,
+  solanaWallet,
 }: {
   env: Env;
   connected: boolean;
@@ -27,8 +32,17 @@ export function Activity({
   onOpen: (domain: number, txHash: string) => void;
   onStart: () => void;
   onConnectWallet?: (() => void) | undefined;
+  solanaWallet?: SolanaWallet | null | undefined;
 }) {
   const now = useNow(15_000);
+  // Deposits from this Solana wallet's burns that it can take back now.
+  const withRefund = solanaWallet ? items.flatMap((it) => (it.view?.solanaRefund ? [it.view] : [])) : [];
+  const events = useSolanaEventAccounts(env, withRefund.map((v) => v.solanaRefund!.eventAccount));
+  const refundable = withRefund.flatMap((view) => {
+    const s = refundState(view, events.data, now);
+    return s?.state === "ready" && s.rentPayer === solanaWallet?.address ? [{ view, lamports: s.lamports }] : [];
+  });
+
   if (!connected) {
     return (
       <Empty icon={<IconWallet />} title="No wallet connected" text="Connect a wallet to see its transfers.">
@@ -70,6 +84,7 @@ export function Activity({
   }
   return (
     <div className="iub-body">
+      {solanaWallet && refundable.length > 0 ? <RefundBanner env={env} wallet={solanaWallet} refundable={refundable} onDone={events.refresh} /> : null}
       <ul className="iub-activity">
         {items.map((it, i) => {
           const style = { "--i": Math.min(i, 10) } as CSSProperties;
@@ -117,6 +132,60 @@ export function Activity({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/** One button for every deposit the wallet can take back; each is its own Solana transaction. */
+function RefundBanner({
+  env,
+  wallet,
+  refundable,
+  onDone,
+}: {
+  env: Env;
+  wallet: SolanaWallet;
+  refundable: { view: TransferView; lamports: bigint }[];
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const total = refundable.reduce((sum, r) => sum + r.lamports, 0n);
+  const n = refundable.length;
+
+  async function run() {
+    setError(null);
+    const queue = [...refundable];
+    for (let i = 0; i < queue.length; i++) {
+      setBusy(i);
+      try {
+        await reclaimDeposit(env, wallet, queue[i]!.view);
+      } catch (e) {
+        setError(friendlyError(e));
+        break;
+      }
+    }
+    setBusy(null);
+    onDone();
+  }
+
+  return (
+    <div className="iub-refund">
+      <ChainLogo chain="solana" name="Solana" size={32} />
+      <span className="iub-refund-text">
+        <strong>{formatAmount(total, 9, 4)} SOL to reclaim</strong>
+        <span className="iub-muted">{n === 1 ? "Left by your transfer from Solana" : `Left by ${n} transfers from Solana`}</span>
+      </span>
+      <button type="button" className="iub-secondary iub-refund-button" disabled={busy !== null} onClick={() => void run()}>
+        {busy !== null ? <Spinner /> : null}
+        {busy === null ? "Reclaim" : n > 1 ? `${busy + 1} of ${n}` : "Confirm"}
+      </button>
+      {error ? (
+        <div className="iub-note iub-note-error iub-refund-error" role="alert">
+          <IconAlert />
+          <span>{error}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

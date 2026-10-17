@@ -6,7 +6,9 @@
  *   KEY_FILE=/path/to/key npm run live-withdraw -- --amount 1.5 --to solana --recipient <wallet> [--send]
  *
  * To Solana the recipient is a wallet; the burn names its USDC account, and
- * asks Circle to create that account when it does not exist yet.
+ * asks Circle to create that account when it does not exist yet. With
+ * --no-forward Circle does not deliver: the burn stops at "ready" for
+ * live-solana-claim, which is how the manual claim is tested live.
  *
  * KEY_FILE holds a hex private key. It is read in-process and never printed.
  */
@@ -30,6 +32,7 @@ const { values } = parseArgs({
     to: { type: "string", default: "base" },
     recipient: { type: "string" },
     send: { type: "boolean", default: false },
+    "no-forward": { type: "boolean", default: false },
     "timeout-min": { type: "string", default: "40" },
   },
 });
@@ -49,8 +52,10 @@ let recipientSetup = false;
 if (destination.kind === "solana") {
   const check = await checkSolanaRecipient(destination.rpcUrls, recipient, destination.usdcMint);
   if (!check.ok) throw new Error(`Solana recipient refused: ${check.reason}`);
-  recipientSetup = !check.tokenAccountExists;
-  console.log(`usdc acct  ${check.tokenAccount} (${check.tokenAccountExists ? "exists" : "missing: Circle will create it"})`);
+  recipientSetup = !check.tokenAccountExists && !values["no-forward"];
+  console.log(
+    `usdc acct  ${check.tokenAccount} (${check.tokenAccountExists ? "exists" : values["no-forward"] ? "missing: the claim will open it" : "missing: Circle will create it"})`,
+  );
 }
 const amount = parseUnits(values.amount!, USDC_DECIMALS);
 const usd = (v: bigint) => `${formatUnits(v, USDC_DECIMALS)} USDC`;
@@ -75,7 +80,7 @@ const [balance, allowance, injBalance] = await Promise.all([
 console.log(`balances   ${usd(balance)}, ${formatUnits(injBalance, 18)} INJ`);
 
 const route = { source, destination };
-const quote = await quoteTransfer({ iris, route, amount, recipientSetup });
+const quote = await quoteTransfer({ iris, route, amount, recipientSetup, ...(values["no-forward"] ? { forward: false } : {}) });
 console.log(
   `quote      amount ${usd(quote.amount)}, forwarded ${quote.forwarded}, setup ${quote.recipientSetup}, forwarding fee ${usd(quote.forwardingFee)}, ` +
     `maxFee ${usd(quote.maxFee)}, min received ${usd(quote.minReceived)}`,
@@ -124,6 +129,10 @@ while (Date.now() < deadline) {
   if (line !== last) {
     console.log(`${String(Math.round((Date.now() - started) / 1000)).padStart(5)}s  ${line}`);
     last = line;
+  }
+  if (leg?.phase === "ready" && !quote.forwarded && destination.kind === "solana") {
+    console.log(`ready      claim it: SOL_KEY_FILE=... npm run live-solana-claim -- --tx ${burnTx} --send`);
+    process.exit(0);
   }
   if (leg?.phase === "delivered") {
     console.log(`delivered  minted ${usd(leg.burn!.amount - leg.burn!.feeExecuted)} (feeExecuted ${usd(leg.burn!.feeExecuted)})`);

@@ -924,6 +924,10 @@ button {
   .site-account-solana .site-account {
     padding: 0 11px;
   }
+  /* Beside a Solana chip there is room for "Connect", not "Connect wallet". */
+  .site-wallet-bar:has(.site-account-solana) .site-connect-more {
+    display: none;
+  }
   .site-wallet-bar {
     gap: 6px;
   }

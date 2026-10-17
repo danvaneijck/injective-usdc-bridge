@@ -50,7 +50,10 @@
     "typecheck": "tsc --noEmit",
     "verify-chains": "tsx scripts/verify-chains.ts",
     "live-withdraw": "tsx scripts/live-withdraw.ts",
-    "live-solana-deposit": "tsx scripts/live-solana-deposit.ts"
+    "live-solana-deposit": "tsx scripts/live-solana-deposit.ts",
+    "live-solana-claim": "tsx scripts/live-solana-claim.ts",
+    "live-solana-refund": "tsx scripts/live-solana-refund.ts",
+    "verify-solana-claims": "tsx scripts/verify-solana-claims.ts"
   },
   "dependencies": {
     "@noble/curves": "^1.9.1",

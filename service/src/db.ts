@@ -51,9 +51,11 @@ export interface TransferRow {
   next_relay_at: number;
   /** Last time the tracker asked Iris about it; null until the first check. */
   checked_at: number | null;
+  /** Solana burns: the MessageSent account whose rent the depositor can reclaim. */
+  event_account: string | null;
 }
 
-export type NewTransfer = Pick<
+export type NewTransfer = Partial<Pick<TransferRow, "event_account">> & Pick<
   TransferRow,
   | "src_domain"
   | "tx_hash"
@@ -109,6 +111,7 @@ CREATE TABLE IF NOT EXISTS transfers (
   next_check_at INTEGER NOT NULL,
   next_relay_at INTEGER NOT NULL DEFAULT 0,
   checked_at INTEGER,
+  event_account TEXT,
   PRIMARY KEY (src_domain, tx_hash, log_index)
 );
 CREATE INDEX IF NOT EXISTS transfers_due ON transfers (phase, next_check_at);
@@ -135,6 +138,9 @@ export class Store {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("busy_timeout = 5000");
     this.db.exec(SCHEMA);
+    // Columns added after the first deploy; CREATE TABLE IF NOT EXISTS skips them on an existing file.
+    const columns = new Set((this.db.prepare("PRAGMA table_info(transfers)").all() as { name: string }[]).map((c) => c.name));
+    if (!columns.has("event_account")) this.db.exec("ALTER TABLE transfers ADD COLUMN event_account TEXT");
   }
 
   close(): void {
@@ -188,16 +194,16 @@ export class Store {
       `INSERT OR IGNORE INTO transfers (
         src_domain, tx_hash, log_index, dst_domain, direction, block_number, block_time,
         depositor, mint_recipient, recipient, destination_caller, amount, max_fee,
-        min_finality, hook_data, kind, phase, first_seen, updated_at, next_check_at
+        min_finality, hook_data, kind, phase, first_seen, updated_at, next_check_at, event_account
       ) VALUES (
         @src_domain, @tx_hash, @log_index, @dst_domain, @direction, @block_number, @block_time,
         @depositor, @mint_recipient, @recipient, @destination_caller, @amount, @max_fee,
-        @min_finality, @hook_data, @kind, 'not_found', @now, @now, @now
+        @min_finality, @hook_data, @kind, 'not_found', @now, @now, @now, @event_account
       )`,
     );
     let added = 0;
     this.db.transaction(() => {
-      for (const r of rows) added += stmt.run({ ...r, now }).changes;
+      for (const r of rows) added += stmt.run({ event_account: null, ...r, now }).changes;
     })();
     return added;
   }

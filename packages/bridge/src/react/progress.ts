@@ -82,7 +82,8 @@ export function progressOf(v: TransferView, now: number): Progress {
     arrive = { label: `Arrives on ${v.destination.name}`, detail: null, state: "waiting", link: null };
   }
 
-  const canClaim = v.phase === "ready" && v.claim !== null && (selfClaim || readyFor > CLAIM_AFTER_MS);
+  const claimable = v.claim !== null || (v.solanaClaim ?? null) !== null;
+  const canClaim = v.phase === "ready" && claimable && (selfClaim || readyFor > CLAIM_AFTER_MS);
   const headline =
     v.phase === "delivered"
       ? "Delivered"

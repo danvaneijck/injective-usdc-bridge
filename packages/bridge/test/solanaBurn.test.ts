@@ -8,8 +8,9 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { getAddress, size, slice } from "viem";
+import { decodeFunctionData, getAddress, size, slice } from "viem";
 import { describe, expect, it } from "vitest";
+import { tokenMessengerV2Abi } from "../src/abis.js";
 import { buildBurn } from "../src/burn.js";
 import { chainByKey, injective, type SolanaChain } from "../src/chains.js";
 import { BRIDGE_RECEIVER, ZERO_BYTES32 } from "../src/constants.js";
@@ -211,9 +212,14 @@ describe("forwarding to Solana", () => {
     const quote = await quoteTransfer({ iris: iris(130_000), route: { source: inj, destination: solana }, amount: 10_000_000n });
     const ata = associatedTokenAddress(REAL.owner, USDC);
     expect(() => buildBurn({ network: "mainnet", route: { source: inj, destination: solana }, quote, recipient: ata })).toThrow(RouteError);
-    expect(() =>
-      buildBurn({ network: "mainnet", route: { source: inj, destination: solana }, quote: { ...quote, forwarded: false }, recipient: REAL.owner }),
-    ).toThrow(/forwarding/);
+  });
+
+  it("without forwarding, burns plainly to the USDC account for the recipient to claim", async () => {
+    const quote = await quoteTransfer({ iris: iris(130_000), route: { source: inj, destination: solana }, amount: 10_000_000n, forward: false });
+    const plan = buildBurn({ network: "mainnet", route: { source: inj, destination: solana }, quote, recipient: REAL.owner });
+    expect(plan.mintRecipient).toBe(solanaToBytes32(associatedTokenAddress(REAL.owner, USDC)));
+    expect(plan.hookData).toBe("0x");
+    expect(decodeFunctionData({ abi: tokenMessengerV2Abi, data: plan.burn.data }).functionName).toBe("depositForBurn");
   });
 
   it("checks a typed recipient on chain", async () => {

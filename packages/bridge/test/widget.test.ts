@@ -3,6 +3,7 @@ import type { TransferView } from "../src/react/api.js";
 import { formatUsdc, parseUsdc, sanitizeAmountInput } from "../src/react/format.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
+import { refundState } from "../src/react/refunds.js";
 import { toEvmAddress, toInjAddress } from "../src/address.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00Z");
@@ -74,6 +75,37 @@ describe("progressOf", () => {
 
   it("calls an expired approval what it is", () => {
     expect(progressOf(view({ phase: "expired" }), T0).steps[1].state).toBe("problem");
+  });
+
+  it("offers a Solana claim like any other: at once without Circle, after the grace period with it", () => {
+    const toSolana = {
+      direction: "withdraw" as const,
+      phase: "ready" as const,
+      attestedAt: new Date(T0).toISOString(),
+      destination: { domain: 5, chain: "solana", name: "Solana", mintTx: null, mintTxUrl: null },
+      solanaClaim: { message: "0x01" as const, attestation: "0x02" as const },
+    };
+    expect(progressOf(view({ ...toSolana, kind: "plain" }), T0 + 1000)).toMatchObject({ headline: "Ready to claim", canClaim: true });
+    expect(progressOf(view({ ...toSolana, kind: "forward" }), T0 + 1000).canClaim).toBe(false);
+    expect(progressOf(view({ ...toSolana, kind: "forward" }), T0 + CLAIM_AFTER_MS + 1).canClaim).toBe(true);
+    // An older service sends no solanaClaim: nothing to offer.
+    expect(progressOf(view({ ...toSolana, kind: "plain", solanaClaim: undefined }), T0 + 1000).canClaim).toBe(false);
+  });
+});
+
+describe("refundState", () => {
+  const refund = { eventAccount: "Ev", message: "0x01" as const, attestation: "0x02" as const, availableAt: new Date(T0).toISOString() };
+  const account = (createdAt: number) => ({ address: "Ev", rentPayer: "Payer", createdAt, message: "0x01" as const, lamports: 2_824_480 });
+  const created = T0 / 1000;
+
+  it("follows the event account on chain: not read, waiting out Circle's 5 days, ready, closed", () => {
+    const v = view({ solanaRefund: refund });
+    expect(refundState(view({}), new Map(), T0)).toBeNull();
+    expect(refundState(v, null, T0)).toEqual({ state: "unknown" });
+    const accounts = new Map([["Ev", account(created)]]);
+    expect(refundState(v, accounts, T0 + 3_600_000)).toEqual({ state: "waiting", lamports: 2_824_480n, rentPayer: "Payer", availableAt: T0 + 5 * 86_400_000 });
+    expect(refundState(v, accounts, T0 + 5 * 86_400_000)).toEqual({ state: "ready", lamports: 2_824_480n, rentPayer: "Payer" });
+    expect(refundState(v, new Map([["Ev", null]]), T0)).toEqual({ state: "refunded" });
   });
 });
 

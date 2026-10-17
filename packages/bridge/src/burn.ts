@@ -61,15 +61,15 @@ export function buildBurn(opts: BuildBurnOptions): BurnPlan {
   let mintRecipient: Hex;
   let hookData: Hex;
   if (route.destination.kind === "solana") {
-    // Circle delivers on Solana; without it the user would need SOL and a
-    // Solana claim, which this package does not build.
-    if (!quote.forwarded) throw new RouteError("Solana delivery needs Circle forwarding");
+    // With forwarding Circle delivers on Solana. Without it the recipient
+    // claims there (buildSolanaClaim), which takes SOL; the widget always
+    // forwards.
     if (!isWalletAddress(opts.recipient)) {
       throw new RouteError(`Recipient ${opts.recipient} is not a Solana wallet address`);
     }
     const owner = opts.recipient.trim();
     mintRecipient = solanaToBytes32(associatedTokenAddress(owner, route.destination.usdcMint));
-    hookData = quote.recipientSetup ? forwardHookDataWithAccountSetup(solanaToBytes32(owner)) : FORWARD_HOOK_DATA;
+    hookData = !quote.forwarded ? "0x" : quote.recipientSetup ? forwardHookDataWithAccountSetup(solanaToBytes32(owner)) : FORWARD_HOOK_DATA;
   } else {
     if (!isAddress(opts.recipient)) {
       throw new RouteError(`Recipient ${opts.recipient} is not an EVM address`);

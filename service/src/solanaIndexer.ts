@@ -168,13 +168,14 @@ export class SolanaIndexer {
       if (!(tx.meta?.logMessages ?? []).some((l) => /Instruction: DepositForBurn/.test(l))) return [];
       burns = await this.burnsFromIris(signature, e as Error);
     }
-    return burns.map((b, i) =>
-      toNewTransfer(
+    return burns.map((b, i) => ({
+      ...toNewTransfer(
         { ...b.burn, depositor: b.owner },
         { srcDomain: this.chain.domain, txHash: signature, logIndex: i, blockNumber: BigInt(tx.slot), blockTime: tx.blockTime },
         this.o.ctx,
       ),
-    );
+      event_account: b.eventAccount,
+    }));
   }
 
   /** Circle decodes the burn from its own index; used only when the layout is new to us. */
@@ -189,6 +190,7 @@ export class SolanaIndexer {
       const body = decodeBurnMessage(header.body);
       out.push({
         owner: bytes32ToSolana(body.messageSender),
+        eventAccount: null,
         burn: {
           withHook: body.hookData !== "0x",
           amount: body.amount,
@@ -226,14 +228,14 @@ export function burnsInTransaction(tx: JsonTransaction, signature = "") {
   const ordered: JsonInstruction[] = [];
   msg.instructions.forEach((ix, i) => ordered.push(ix, ...(inner.get(i) ?? [])));
 
-  const out: { owner: string; burn: NonNullable<ReturnType<typeof decodeSolanaBurn>> }[] = [];
+  const out: { owner: string; eventAccount: string | null; burn: NonNullable<ReturnType<typeof decodeSolanaBurn>> }[] = [];
   for (const ix of ordered) {
     if (keys[ix.programIdIndex] !== SOLANA_TOKEN_MESSENGER_MINTER_V2) continue;
     const burn = decodeSolanaBurn(base58.decode(ix.data));
     if (!burn || burn.destinationDomain !== INJECTIVE_DOMAIN) continue;
     const owner = keys[ix.accounts[SOLANA_BURN_ACCOUNTS.owner]!];
     if (!owner) continue;
-    out.push({ owner, burn });
+    out.push({ owner, eventAccount: keys[ix.accounts[SOLANA_BURN_ACCOUNTS.messageSentEventData]!] ?? null, burn });
   }
   return out;
 }

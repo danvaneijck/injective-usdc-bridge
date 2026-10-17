@@ -321,7 +321,7 @@ Choice v2 look, themeable):
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
 | 1 | **Live.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Shadow at bridge-api.choice.exchange from 2026-10-16; `MODE=relay` with the keeper from 2026-10-16 22:25Z (receiver and relayer seeded 0.05 INJ each). |
 | 2 | **Widget live** on bridge.choice.exchange from 2026-10-16 22:26Z, smoke-tested in Chrome against production. Next: Choice v2 and the launchpad, replacing their jumper.xyz links. |
-| 3 | **Solana built 2026-10-17** (see Solana). Next: HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
+| 3 | **Solana built 2026-10-17** (see Solana), with the Solana claim and the deposit refund. Next: HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |
 
 ## Solana
@@ -357,9 +357,41 @@ Both directions, built 2026-10-17 (Dan: both together, public RPC for now).
 - **Wallets**: the widget takes a `solanaWallet` shaped after Wallet
   Standard's sign methods (wire bytes in and out); the site finds Phantom,
   Solflare, Backpack and MetaMask through Wallet Standard.
-- **Not yet**: claiming on Solana by hand when Circle's forward fails (v1's
-  `receive_message` builder exists to port), reclaiming the event account's
-  rent.
+- **Claiming on Solana** (built 2026-10-17): when Circle's forward fails, or
+  for a burn made without forwarding (v1 made those; `buildBurn` still can
+  with `forward: false`, the widget never does), any Solana wallet can send
+  the mint itself: `receive_message` with TokenMessengerMinter's accounts
+  after it, ported from v1 and rebuilt byte for byte from a real mainnet mint
+  in tests. It opens the recipient's USDC account first (CreateIdempotent)
+  when that is missing and the owner is known. The payer pays the nonce
+  account's rent (about 0.00095 SOL), plus 0.002 SOL when it opens the USDC
+  account. Inline the transaction is about 1260 bytes, over Solana's 1232, so
+  it is a v0 transaction loading the 14 fixed accounts from the table v1
+  published (`2LLzhRZ…NWX5`, `SolanaChain.receiveLookupTable`). The table is
+  read from chain and only accounts actually found in it load from it;
+  tables are append-only, so a stale or foreign table can only fail the claim
+  (the size check refuses it), never point it at other accounts. The v0
+  compiler is checked byte for byte against @solana/web3.js. The service
+  sends `solanaClaim` (message and attestation) on ready transfers to Solana;
+  the card's button appears at once for unforwarded burns and after 3 minutes
+  for forwarded ones, as on EVM chains.
+- **Deposit refund** (built 2026-10-17): a burn from Solana parks about
+  0.0028 SOL of rent in its event account. Circle's `reclaim_event_account`
+  returns it to the rent payer (the burning wallet, in our burns) from 5 days
+  after the burn, given Circle's attestation. The indexer records each burn's
+  event account (`event_account` column, added in place on existing
+  databases), the service sends `solanaRefund` once the burn is attested,
+  and the widget reads the accounts on chain: a "SOL deposit" line until it
+  is due, a Reclaim button on the transfer once it is, and a banner in
+  Activity summing every deposit the connected wallet can take back. Of the
+  burns to Injective older than 5 days found on 2026-10-17, none had been
+  refunded.
+- **Checked on mainnet without funds**: `npm run verify-solana-claims`
+  simulates refunds of real old event accounts (Circle's program verifies the
+  attestation and closes the account), rebuilds a recent real
+  `receive_message` and simulates ours through the table, which must stop at
+  the used nonce. Live: `live-withdraw --to solana --no-forward`, then
+  `live-solana-claim`, and `live-solana-refund` 5 days after a burn.
 
 ## Open
 

@@ -81,7 +81,15 @@ function App() {
                 <h1>Transfer status</h1>
                 <p>Live from the chains. Bookmark this page to check on it later.</p>
               </div>
-              <TransferStatus apiUrl={API_URL} domain={track.domain} txHash={track.txHash} wallet={bridgeWallet} onConnectWallet={() => openPicker("evm")} />
+              <TransferStatus
+                apiUrl={API_URL}
+                domain={track.domain}
+                txHash={track.txHash}
+                wallet={bridgeWallet}
+                onConnectWallet={() => openPicker("evm")}
+                solanaWallet={solana.bridgeWallet}
+                onConnectSolanaWallet={() => openPicker("solana")}
+              />
               <Link to="/" className="site-new">
                 Start a new transfer
               </Link>

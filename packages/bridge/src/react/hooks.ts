@@ -8,6 +8,7 @@ import { IrisClient } from "../iris.js";
 import { type Quote, RouteError, quoteTransfer } from "../quote.js";
 import { publicClientFor } from "../rpc.js";
 import { type SolanaRecipientCheck, checkSolanaRecipient, isSolanaAddress, solanaBalance, solanaTokenBalance } from "../solana.js";
+import { type MessageSentAccount, readMessageSentAccounts } from "../solanaClaim.js";
 import { BridgeApi, type LaneHealth, type TransferView } from "./api.js";
 import { Journal, type JournalEntry } from "./journal.js";
 import { DEFAULT_API_URL } from "./types.js";
@@ -125,6 +126,13 @@ export function useSolanaRecipient(env: Env, chain: Chain, owner: string | null)
     () => checkSolanaRecipient(env.solanaRpc, owner!, (chain as { usdcMint: string }).usdcMint),
     60_000,
   ).data;
+}
+
+/** Burns' event accounts as they stand on chain (null: closed, so refunded). One call per poll. */
+export function useSolanaEventAccounts(env: Env, addresses: string[]): { data: Map<string, MessageSentAccount | null> | null; refresh: () => void } {
+  const sorted = [...new Set(addresses)].sort();
+  const { data, refresh } = usePoll(sorted.length ? `events:${sorted.join(",")}` : null, () => readMessageSentAccounts(env.solanaRpc, sorted), 60_000);
+  return { data, refresh };
 }
 
 export function useInjBalance(env: Env, owner: Address | null): bigint | null {

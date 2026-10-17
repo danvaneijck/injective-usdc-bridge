@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { type Address, type Hex, getAddress } from "viem";
 import { chainByDomain, explorerTxUrl } from "../chains.js";
 import { USDC_DECIMALS } from "../constants.js";
 import type { TransferView } from "./api.js";
 import { ChainLogo, ChainPair } from "./ChainLogo.js";
 import { formatAmount, formatDuration, formatUsdc, shortAddress } from "./format.js";
-import { type Env, useEnv, useNow, usePoll } from "./hooks.js";
-import { IconAlert, IconArrow, IconBack, IconCheck, IconCopy, IconExternal, IconSuccess, PulseDot, Spinner } from "./icons.js";
+import { type Env, useEnv, useNow, usePoll, useSolanaEventAccounts } from "./hooks.js";
+import { IconAlert, IconArrow, IconBack, IconCheck, IconCopy, IconExternal, IconInfo, IconSuccess, PulseDot, Spinner } from "./icons.js";
 import { type Progress, type Step, progressOf } from "./progress.js";
-import type { BridgeWallet } from "./types.js";
+import { claimOnSolana, reclaimDeposit, refundState } from "./refunds.js";
+import type { BridgeWallet, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
 
 export interface TransferStatusProps {
@@ -17,6 +18,9 @@ export interface TransferStatusProps {
   txHash: string;
   wallet?: BridgeWallet;
   onConnectWallet?: () => void;
+  /** Finishes transfers to Solana that Circle did not deliver, and takes back a Solana burn's deposit. */
+  solanaWallet?: SolanaWallet | null;
+  onConnectSolanaWallet?: () => void;
   network?: TransferStatusEnvProps["network"];
   apiUrl?: string;
   rpcUrls?: Partial<Record<string, string[]>>;
@@ -31,25 +35,37 @@ export function TransferStatus(props: TransferStatusProps) {
   return (
     <div className={`iub ${props.className ?? ""}`}>
       <div className="iub-view">
-        <TransferTracker env={env} domain={props.domain} txHash={props.txHash} wallet={props.wallet} onConnectWallet={props.onConnectWallet} />
+        <TransferTracker
+          env={env}
+          domain={props.domain}
+          txHash={props.txHash}
+          wallet={props.wallet}
+          onConnectWallet={props.onConnectWallet}
+          solanaWallet={props.solanaWallet ?? null}
+          onConnectSolanaWallet={props.onConnectSolanaWallet}
+        />
       </div>
     </div>
   );
+}
+
+interface Wallets {
+  wallet?: BridgeWallet | undefined;
+  onConnectWallet?: (() => void) | undefined;
+  solanaWallet?: SolanaWallet | null | undefined;
+  onConnectSolanaWallet?: (() => void) | undefined;
 }
 
 export function TransferTracker({
   env,
   domain,
   txHash,
-  wallet,
-  onConnectWallet,
   onBack,
-}: {
+  ...wallets
+}: Wallets & {
   env: Env;
   domain: number;
   txHash: string;
-  wallet?: BridgeWallet | undefined;
-  onConnectWallet?: (() => void) | undefined;
   onBack?: () => void;
 }) {
   const { data, refresh } = usePoll(`tx:${domain}:${txHash}`, () => env.api.transfer(domain, txHash), 4_000);
@@ -64,7 +80,7 @@ export function TransferTracker({
         </button>
       ) : null}
       {data && data.length > 0 ? (
-        data.map((v) => <TransferCard key={v.id} env={env} view={v} now={now} wallet={wallet} onConnectWallet={onConnectWallet} onClaimed={refresh} />)
+        data.map((v) => <TransferCard key={v.id} env={env} view={v} now={now} {...wallets} onClaimed={refresh} />)
       ) : (
         <div className="iub-card">
           <div className="iub-card-head">
@@ -133,13 +149,13 @@ function TransferCard({
   now,
   wallet,
   onConnectWallet,
+  solanaWallet,
+  onConnectSolanaWallet,
   onClaimed,
-}: {
+}: Wallets & {
   env: Env;
   view: TransferView;
   now: number;
-  wallet?: BridgeWallet | undefined;
-  onConnectWallet?: (() => void) | undefined;
   onClaimed: () => void;
 }) {
   const p = progressOf(view, now);
@@ -147,17 +163,25 @@ function TransferCard({
   const [error, setError] = useState<string | null>(null);
   const sent = view.source.time ? Date.parse(view.source.time) : null;
   const took = view.deliveredAt && sent !== null ? Date.parse(view.deliveredAt) - sent : null;
+  const onSolana = (view.solanaClaim ?? null) !== null;
+  const events = useSolanaEventAccounts(env, view.solanaRefund ? [view.solanaRefund.eventAccount] : []);
+  const refund = refundState(view, events.data, now);
 
   async function claim() {
-    const c = view.claim;
-    const chain = c ? env.chainById(c.chainId) : undefined;
-    if (!c || !chain || !wallet?.provider || !wallet.address) return;
     setClaiming(true);
     setError(null);
     try {
-      const client = env.clientFor(chain);
-      const hash = await sendCall(wallet.provider, getAddress(wallet.address) as Address, chain, client, { to: c.to as Address, data: c.data as Hex });
-      await client.waitForTransactionReceipt({ hash, timeout: 180_000 });
+      if (onSolana) {
+        if (!solanaWallet) return;
+        await claimOnSolana(env, solanaWallet, view);
+      } else {
+        const c = view.claim;
+        const chain = c ? env.chainById(c.chainId) : undefined;
+        if (!c || !chain || !wallet?.provider || !wallet.address) return;
+        const client = env.clientFor(chain);
+        const hash = await sendCall(wallet.provider, getAddress(wallet.address) as Address, chain, client, { to: c.to as Address, data: c.data as Hex });
+        await client.waitForTransactionReceipt({ hash, timeout: 180_000 });
+      }
       onClaimed();
     } catch (e) {
       setError(friendlyError(e));
@@ -165,6 +189,8 @@ function TransferCard({
       setClaiming(false);
     }
   }
+  const canSign = onSolana ? solanaWallet != null : Boolean(wallet?.address && wallet.provider);
+  const connect = onSolana ? onConnectSolanaWallet : onConnectWallet;
 
   return (
     <div className={`iub-card iub-card-${p.tone}`}>
@@ -223,6 +249,12 @@ function TransferCard({
             <dd>{formatUsdc(BigInt(view.feeExecuted), 6)} USDC</dd>
           </div>
         ) : null}
+        {refund?.state === "waiting" || refund?.state === "refunded" ? (
+          <div>
+            <dt>SOL deposit</dt>
+            <dd>{refund.state === "refunded" ? "Refunded" : `${formatSol(refund.lamports)} SOL, back from ${formatWhen(refund.availableAt)}`}</dd>
+          </div>
+        ) : null}
       </dl>
 
       {p.canClaim ? (
@@ -231,15 +263,16 @@ function TransferCard({
             {view.direction === "withdraw" && view.kind !== "forward"
               ? `Approved. Send one transaction on ${view.destination.name} to receive it.`
               : "Approved but not delivered yet. You can finish it yourself with one transaction."}
+            {onSolana ? " It costs about 0.001 SOL, paid by any Solana wallet you connect." : null}
           </p>
-          {wallet?.address && wallet.provider ? (
+          {canSign ? (
             <button type="button" className={claiming ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={claiming} onClick={() => void claim()}>
               {claiming ? <Spinner /> : null}
               {claiming ? "Confirm in your wallet" : `Complete on ${view.destination.name}`}
             </button>
           ) : (
-            <button type="button" className="iub-primary" disabled={!onConnectWallet} onClick={onConnectWallet}>
-              Connect a wallet to complete it
+            <button type="button" className="iub-primary" disabled={!connect} onClick={connect}>
+              {onSolana ? "Connect a Solana wallet to complete it" : "Connect a wallet to complete it"}
             </button>
           )}
           {error ? (
@@ -250,6 +283,84 @@ function TransferCard({
           ) : null}
         </div>
       ) : null}
+
+      {refund?.state === "ready" ? (
+        <RefundAction
+          env={env}
+          view={view}
+          lamports={refund.lamports}
+          rentPayer={refund.rentPayer}
+          solanaWallet={solanaWallet ?? null}
+          onConnectSolanaWallet={onConnectSolanaWallet}
+          onDone={events.refresh}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const formatSol = (lamports: bigint) => formatAmount(lamports, 9, 4);
+const formatWhen = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** A Solana burn's deposit, ready to take back: only the wallet that paid it may. */
+function RefundAction({
+  env,
+  view,
+  lamports,
+  rentPayer,
+  solanaWallet,
+  onConnectSolanaWallet,
+  onDone,
+}: {
+  env: Env;
+  view: TransferView;
+  lamports: bigint;
+  rentPayer: string;
+  solanaWallet: SolanaWallet | null;
+  onConnectSolanaWallet?: (() => void) | undefined;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function reclaim() {
+    if (!solanaWallet) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await reclaimDeposit(env, solanaWallet, view);
+      onDone();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const mine = solanaWallet?.address === rentPayer;
+  return (
+    <div className="iub-claim">
+      <p className="iub-muted">Sending from Solana left {formatSol(lamports)} SOL in a deposit account. It is yours to take back.</p>
+      {mine ? (
+        <button type="button" className="iub-secondary" disabled={busy} onClick={() => void reclaim()}>
+          {busy ? <Spinner /> : null}
+          {busy ? "Confirm in your wallet" : `Reclaim ${formatSol(lamports)} SOL`}
+        </button>
+      ) : solanaWallet ? (
+        <Note>Connect {shortAddress(rentPayer)}, the Solana wallet that sent it, to reclaim it.</Note>
+      ) : (
+        <button type="button" className="iub-secondary" disabled={!onConnectSolanaWallet} onClick={onConnectSolanaWallet}>
+          Connect a Solana wallet to reclaim it
+        </button>
+      )}
+      {error ? <Note tone="error">{error}</Note> : null}
+    </div>
+  );
+}
+
+function Note({ tone, children }: { tone?: "error"; children: ReactNode }) {
+  return (
+    <div className={tone ? `iub-note iub-note-${tone}` : "iub-note"} role={tone ? "alert" : undefined}>
+      {tone ? <IconAlert /> : <IconInfo />}
+      <span>{children}</span>
     </div>
   );
 }

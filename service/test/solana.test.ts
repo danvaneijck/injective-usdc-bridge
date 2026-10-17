@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   FORWARD_HOOK_DATA,
@@ -12,6 +14,7 @@ import {
 } from "injective-usdc-bridge";
 import { createApi, normalizeAddress } from "../src/api.js";
 import { classify, toNewTransfer } from "../src/classify.js";
+import { Store } from "../src/db.js";
 import { Health } from "../src/health.js";
 import { createLogger } from "../src/log.js";
 import { SolanaIndexer, burnsInTransaction } from "../src/solanaIndexer.js";
@@ -23,6 +26,8 @@ const log = createLogger("error", {});
 /** Real mainnet burn, Solana -> Injective, 2 USDC (slot 457551948). */
 const BURN = JSON.parse(readFileSync(new URL("./fixtures/solana-burn-to-injective.json", import.meta.url), "utf8"));
 const OWNER = "CeeVcSmNej5z8zKaaoX4TUG1su7i3vPHut52vViNdeBi";
+/** The burn's MessageSent account, holding the rent the owner can reclaim. */
+const EVENT = "2F5eMVcS3XsYZqjtkfDnbc7AxMzPzZdR2TSAj16goBZp";
 const RECEIVE_SIG = "j5rdVVVu6GW8bZU9M1gLweGEHXQuhxHMgXYWSmV8T3f4aKABio3RXn8fzSPNi42GUmWAiDCGY75udRdRiAggRQE";
 
 /** A Solana RPC that knows two signatures on the watched account: one burn, one mint from Injective. */
@@ -68,7 +73,11 @@ describe("Solana indexer", () => {
   it("decodes a real burn to Injective out of its transaction", () => {
     const burns = burnsInTransaction(BURN);
     expect(burns).toHaveLength(1);
-    expect(burns[0]).toMatchObject({ owner: OWNER, burn: { amount: 2_000_000n, destinationDomain: 29, destinationCaller: ZERO_BYTES32 } });
+    expect(burns[0]).toMatchObject({
+      owner: OWNER,
+      eventAccount: EVENT,
+      burn: { amount: 2_000_000n, destinationDomain: 29, destinationCaller: ZERO_BYTES32 },
+    });
   });
 
   it("indexes burns from the watched account and skips mints from Injective", async () => {
@@ -87,6 +96,7 @@ describe("Solana indexer", () => {
       recipient: "0x21eb63b81d92ca293470e643a124607e4ff1ce60",
       amount: "2000000",
       block_number: BURN.slot,
+      event_account: EVENT,
     });
     expect(calls.find((c) => c.method === "getSignaturesForAddress")!.params[0]).toBe(remoteTokenMessengerAddress(29));
     // The cursor trails the head by a small margin; a second round re-reads nothing.
@@ -103,6 +113,18 @@ describe("Solana indexer", () => {
     await ix.tick();
     expect(store.byTx(5, BURN.signature)).toHaveLength(0);
     expect(store.getCursor("solana")).toBe(BURN.slot - 1);
+  });
+
+  it("adds the event-account column to a database made before it existed", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "iub-")), "bridge.db");
+    const old = new Store(path);
+    old.db.exec("ALTER TABLE transfers DROP COLUMN event_account");
+    old.close();
+    const store = new Store(path);
+    const [b] = burnsInTransaction(BURN);
+    store.insertTransfers([{ ...toNewTransfer({ ...b!.burn, depositor: b!.owner }, { srcDomain: 5, txHash: BURN.signature, logIndex: 0, blockNumber: 1n, blockTime: 1 }, ctx), event_account: EVENT }], 1);
+    expect(store.byTx(5, BURN.signature)[0]!.event_account).toBe(EVENT);
+    store.close();
   });
 
   it("starts from the lookback, not from the beginning of Solana", async () => {
@@ -142,12 +164,17 @@ describe("API with Solana", () => {
     const clock = new Clock();
     const [b] = burnsInTransaction(BURN);
     store.insertTransfers(
-      [toNewTransfer({ ...b!.burn, depositor: b!.owner }, { srcDomain: 5, txHash: BURN.signature, logIndex: 0, blockNumber: BigInt(BURN.slot), blockTime: BURN.blockTime }, ctx)],
+      [
+        {
+          ...toNewTransfer({ ...b!.burn, depositor: b!.owner }, { srcDomain: 5, txHash: BURN.signature, logIndex: 0, blockNumber: BigInt(BURN.slot), blockTime: BURN.blockTime }, ctx),
+          event_account: b!.eventAccount,
+        },
+      ],
       clock.t,
     );
     const health = new Health({ store, network: "mainnet", mode: "shadow", chainKeys: ["solana"], now: clock.now });
     const ingest = vi.fn(async () => {});
-    return { app: createApi({ store, network: "mainnet", health, bridgeReceiver: RECEIVER, ingest }), ingest };
+    return { app: createApi({ store, network: "mainnet", health, bridgeReceiver: RECEIVER, ingest }), ingest, store };
   }
 
   it("looks transfers up by Solana signature, case intact, with a Solscan link", async () => {
@@ -164,6 +191,41 @@ describe("API with Solana", () => {
     const res = await app.request(`/v1/transfers?address=${OWNER}`);
     expect(((await res.json()) as { transfers: unknown[] }).transfers).toHaveLength(1);
     expect((await app.request(`/v1/transfers/5/0x${"aa".repeat(32)}`)).status).toBe(400);
+  });
+
+  it("offers the deposit's rent back from 5 days after the burn, once attested", async () => {
+    const { app, store } = setup();
+    const view = async () =>
+      ((await (await app.request(`/v1/transfers/5/${BURN.signature}`)).json()) as { transfers: { solanaRefund: unknown; solanaClaim: unknown }[] })
+        .transfers[0]!;
+    expect((await view()).solanaRefund).toBeNull(); // no attestation yet
+    store.update({ src_domain: 5, tx_hash: BURN.signature, log_index: 0 }, { phase: "delivered", message: "0x01", attestation: "0x02" }, 1);
+    expect((await view()).solanaRefund).toEqual({
+      eventAccount: EVENT,
+      message: "0x01",
+      attestation: "0x02",
+      availableAt: new Date((BURN.blockTime + 5 * 86_400) * 1000).toISOString(),
+    });
+    expect((await view()).solanaClaim).toBeNull(); // only for transfers to Solana
+  });
+
+  it("hands a Solana wallet what it needs to claim an undelivered transfer to Solana", async () => {
+    const { app, store } = setup();
+    const ata = associatedTokenAddress(OWNER, solana.usdcMint);
+    const hash = `0x${"cd".repeat(32)}`;
+    store.insertTransfers(
+      [
+        toNewTransfer(
+          { amount: 1_000_000n, depositor: "0x73fcb2d05f2e29561b58177af7f22ac19b3b484f", mintRecipient: solanaToBytes32(ata), destinationDomain: 5, destinationCaller: ZERO_BYTES32, maxFee: 0n, minFinalityThreshold: 2000, hookData: "0x" },
+          { srcDomain: 29, txHash: hash, logIndex: 0, blockNumber: 1n, blockTime: 1 },
+          ctx,
+        ),
+      ],
+      1,
+    );
+    store.update({ src_domain: 29, tx_hash: hash, log_index: 0 }, { phase: "ready", message: "0x0a", attestation: "0x0b" }, 1);
+    const { transfers } = (await (await app.request(`/v1/transfers/29/${hash}`)).json()) as { transfers: { claim: unknown; solanaClaim: unknown; solanaRefund: unknown }[] };
+    expect(transfers[0]).toMatchObject({ claim: null, solanaClaim: { message: "0x0a", attestation: "0x0b" }, solanaRefund: null });
   });
 
   it("passes a hinted Solana signature to the indexer unchanged", async () => {

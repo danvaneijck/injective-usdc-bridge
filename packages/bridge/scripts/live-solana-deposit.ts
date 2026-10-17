@@ -8,10 +8,7 @@
  * SOL_KEY_FILE holds a Solana keypair as a JSON array of 64 bytes (secret
  * then public). It is read in-process and never printed.
  */
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { ed25519 } from "@noble/curves/ed25519";
-import { base58 } from "@scure/base";
 import { formatUnits, getAddress, parseUnits } from "viem";
 import { type SolanaChain, chainByKey, explorerTxUrl, injective } from "../src/chains.js";
 import { USDC_DECIMALS } from "../src/constants.js";
@@ -21,6 +18,7 @@ import { createChainReader } from "../src/rpc.js";
 import { solanaBalance, solanaTokenBalance } from "../src/solana.js";
 import { buildSolanaBurn, submitSolanaTransaction } from "../src/solanaBurn.js";
 import { resolveTransfer } from "../src/status.js";
+import { readSolanaKey } from "./solanaKey.js";
 
 const { values } = parseArgs({
   options: {
@@ -34,14 +32,9 @@ const { values } = parseArgs({
 });
 
 const network = "mainnet" as const;
-const keyFile = process.env.SOL_KEY_FILE;
-if (!keyFile) throw new Error("Set SOL_KEY_FILE to a Solana keypair JSON file");
 if (!values.recipient) throw new Error("--recipient 0x.. (the Injective address) is required");
-const keypair = Uint8Array.from(JSON.parse(readFileSync(keyFile, "utf8")) as number[]);
-if (keypair.length !== 64) throw new Error("SOL_KEY_FILE must hold 64 bytes");
-const secret = keypair.slice(0, 32);
-const owner = base58.encode(ed25519.getPublicKey(secret));
-if (owner !== base58.encode(keypair.slice(32))) throw new Error("SOL_KEY_FILE public half does not match its secret");
+const key = readSolanaKey(process.env.SOL_KEY_FILE);
+const owner = key.owner;
 
 const source = chainByKey(network, "solana") as SolanaChain;
 const destination = injective(network);
@@ -75,12 +68,7 @@ if (!values.send) {
   process.exit(0);
 }
 
-// The fee payer's signature is the first slot; the message follows all slots.
-const wire = plan.transaction.slice();
-const slots = wire[0]!;
-const message = wire.slice(1 + 64 * slots);
-wire.set(ed25519.sign(message, secret), 1);
-const signature = await submitSolanaTransaction(source.rpcUrls, wire, plan.lastValidBlockHeight);
+const signature = await submitSolanaTransaction(source.rpcUrls, key.sign(plan.transaction), plan.lastValidBlockHeight);
 console.log(`burn       ${explorerTxUrl(source, signature)}`);
 
 await fetch(`${values.api}/v1/transfers/hint`, {

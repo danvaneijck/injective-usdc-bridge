@@ -8,6 +8,12 @@
  *   npm run dev &   # or point SITE_URL at a deployed site
  *   WALLET=0x... node scripts/smoke.mjs
  *
+ * REFUND=<payer>:<sig>[,<sig>] also checks the Solana deposit refund: the
+ * signatures are burns from Solana older than 5 days whose deposits are still
+ * open, and the stand-in Solana wallet takes the payer's address. Reclaim is
+ * pressed for real: the refund is built and simulated against mainnet, and
+ * only the stand-in's refusal to sign stops it.
+ *
  * Screenshots land in OUT (default ./smoke-out).
  */
 import { mkdirSync } from "node:fs";
@@ -18,6 +24,7 @@ const WALLET = process.env.WALLET;
 /** A real Solana wallet with a USDC account (read-only use: balances and checks). */
 const SOL_WALLET = process.env.SOL_WALLET ?? "CeeVcSmNej5z8zKaaoX4TUG1su7i3vPHut52vViNdeBi";
 const TRACK = process.env.TRACK; // "<domain>/<txHash>" to open a tracking page
+const REFUND = process.env.REFUND;
 const OUT = process.env.OUT ?? "./smoke-out";
 if (!WALLET) throw new Error("WALLET=0x... is required");
 mkdirSync(OUT, { recursive: true });
@@ -36,7 +43,7 @@ async function check(name, fn) {
   }
 }
 
-async function open(viewport) {
+async function open(viewport, solAddress = SOL_WALLET) {
   const page = await browser.newPage({ viewport });
   // A Wallet Standard Solana wallet that connects and refuses to sign.
   await page.addInitScript((address) => {
@@ -61,7 +68,7 @@ async function open(viewport) {
     };
     window.addEventListener("wallet-standard:app-ready", (e) => e.detail.register(wallet));
     window.dispatchEvent(new CustomEvent("wallet-standard:register-wallet", { detail: (api) => api.register(wallet) }));
-  }, SOL_WALLET);
+  }, solAddress);
   await page.addInitScript((address) => {
     const provider = {
       async request({ method }) {
@@ -191,6 +198,48 @@ await check("refuses a token account typed as the Solana recipient", async () =>
   await sp.getByText(/That is a token account, not a wallet/).waitFor({ timeout: 15_000 });
   await sp.getByRole("button", { name: "Use my wallet" }).click();
 });
+
+if (REFUND) {
+  const [payer, list] = REFUND.split(":");
+  const sigs = list.split(",");
+  await check("offers a Solana burn's deposit back, built and simulated up to the signature", async () => {
+    const r = await open({ width: 1280, height: 900 }, payer);
+    for (const sig of sigs.slice(1)) await r.goto(`${SITE}/tx/5/${sig}`); // has the service index them too
+    await r.goto(`${SITE}/tx/5/${sigs[0]}`);
+    await r.getByRole("button", { name: "Connect a Solana wallet to reclaim it" }).click({ timeout: 60_000 });
+    await r.getByRole("button", { name: "Smoke Solana" }).click();
+    const reclaim = r.getByRole("button", { name: /^Reclaim [\d.]+ SOL$/ });
+    await reclaim.waitFor({ timeout: 10_000 });
+    await r.waitForTimeout(400);
+    await r.screenshot({ path: `${OUT}/11-refund.png` });
+    await reclaim.click();
+    await r.getByText("smoke wallet does not sign").waitFor({ timeout: 30_000 });
+    await r.screenshot({ path: `${OUT}/12-refund-signing.png` });
+  });
+
+  await check("sums the deposits to reclaim in Activity", async () => {
+    const a = await open({ width: 1280, height: 900 }, payer);
+    await a.goto(`${SITE}/`);
+    await a.getByRole("button", { name: "Connect wallet" }).first().click();
+    await a.getByRole("tab", { name: /Solana/ }).click();
+    await a.getByRole("button", { name: "Smoke Solana" }).click();
+    await a.keyboard.press("Escape");
+    await a.getByRole("tab", { name: /Activity/ }).click();
+    const banner = a.locator(".iub-refund");
+    await banner.getByText(/^[\d.]+ SOL to reclaim$/).waitFor({ timeout: 60_000 });
+    // Each deposit joins once the service has tracked its burn; wait for all of them.
+    if (sigs.length > 1) await banner.getByText(`Left by ${sigs.length} transfers from Solana`).waitFor({ timeout: 60_000 });
+    await a.waitForTimeout(400);
+    await a.screenshot({ path: `${OUT}/13-refund-activity.png` });
+    await a.setViewportSize({ width: 390, height: 844 });
+    await a.waitForTimeout(400);
+    if (await a.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) throw new Error("the refund banner scrolls sideways at 390px");
+    // Both wallet controls stay inside the header.
+    const right = await a.locator(".site-wallet-bar").evaluate((el) => el.getBoundingClientRect().right);
+    if (right > 390) throw new Error(`the wallet bar ends at ${Math.round(right)}px, past the 390px screen`);
+    await a.screenshot({ path: `${OUT}/14-refund-phone.png` });
+  });
+}
 
 await check("status page reads the health report", async () => {
   const s = await open({ width: 1280, height: 900 });

@@ -1359,6 +1359,38 @@ button.iub-chain:active {
   font-size: 13px;
 }
 
+/* ── Solana deposit refund ─────────────────────────────────────────────── */
+.iub-refund {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--iub-radius-panel);
+  background: var(--iub-accent-soft);
+  border: 1px solid var(--iub-border);
+  animation: iub-in 0.3s var(--iub-ease);
+}
+.iub-refund-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+}
+.iub-refund-text strong {
+  font-size: 14px;
+}
+.iub-refund-button {
+  height: 36px;
+  padding: 0 14px;
+  gap: 8px;
+}
+.iub-refund-error {
+  grid-column: 1 / -1;
+}
+
 /* ── Activity ──────────────────────────────────────────────────────────── */
 .iub-activity {
   list-style: none;

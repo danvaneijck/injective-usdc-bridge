@@ -63,6 +63,7 @@ export function Bridge(props: BridgeProps) {
             onOpen={(domain, txHash) => setView({ name: "track", domain, txHash, from: "activity" })}
             onStart={() => setView({ name: "form" })}
             onConnectWallet={props.onConnectWallet}
+            solanaWallet={props.solanaWallet ?? null}
           />
         </div>
       ) : null}
@@ -75,6 +76,8 @@ export function Bridge(props: BridgeProps) {
             txHash={view.txHash}
             wallet={props.wallet}
             onConnectWallet={props.onConnectWallet}
+            solanaWallet={props.solanaWallet ?? null}
+            onConnectSolanaWallet={props.onConnectSolanaWallet}
             onBack={() => setView(view.from === "form" ? { name: "form" } : { name: "activity" })}
           />
         </div>

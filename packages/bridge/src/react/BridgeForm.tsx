@@ -1,4 +1,3 @@
-import { base58 } from "@scure/base";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type Address, type Hex, formatEther, formatUnits, getAddress, isAddress, parseEther } from "viem";
 import { erc20Abi } from "../abis.js";
@@ -8,13 +7,14 @@ import type { Chain } from "../chains.js";
 import { CCTP_CONTRACTS, FINALITY, type Speed, USDC_DECIMALS } from "../constants.js";
 import type { Direction } from "../quote.js";
 import { isSolanaAddress } from "../solana.js";
-import { buildSolanaBurn, confirmSolanaSignature, submitSolanaTransaction, transactionSignature } from "../solanaBurn.js";
+import { buildSolanaBurn } from "../solanaBurn.js";
 import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
 import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useUsdcBalance } from "./hooks.js";
 import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconWallet, Spinner } from "./icons.js";
+import { sendWithSolanaWallet } from "./solanaSend.js";
 import type { Eip1193Provider, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
 
@@ -163,22 +163,10 @@ export function BridgeForm({
       ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
     });
     setBusy("sending");
-    let signature: string;
-    if (solanaWallet.signAndSendTransaction) {
-      const sig = await solanaWallet.signAndSendTransaction(plan.transaction);
-      signature = typeof sig === "string" ? sig : base58.encode(sig);
-      record(source.domain, signature, solanaWallet.address);
+    const signature = await sendWithSolanaWallet(solanaWallet, plan, env.solanaRpc, (sig) => {
+      record(source.domain, sig, solanaWallet.address);
       setBusy("confirming");
-      await confirmSolanaSignature(env.solanaRpc, signature, plan.lastValidBlockHeight);
-    } else if (solanaWallet.signTransaction) {
-      const signed = await solanaWallet.signTransaction(plan.transaction);
-      signature = transactionSignature(signed);
-      record(source.domain, signature, solanaWallet.address);
-      setBusy("confirming");
-      await submitSolanaTransaction(env.solanaRpc, signed, plan.lastValidBlockHeight);
-    } else {
-      throw new Error("This Solana wallet cannot sign transactions.");
-    }
+    });
     setAmountText("");
     onSent(source.domain, signature);
   }
@@ -415,7 +403,7 @@ export function BridgeForm({
                   {fromSolana ? (
                     <div>
                       <dt>Solana network fee</dt>
-                      <dd>About {formatAmount(solNeeded, 9, 4)} SOL</dd>
+                      <dd>About {formatAmount(solNeeded, 9, 4)} SOL, most of it back after 5 days</dd>
                     </div>
                   ) : null}
                   <div className="iub-fees-total">

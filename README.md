@@ -59,7 +59,9 @@ import "injective-usdc-bridge/react/styles.css";
 <Bridge wallet={{ address, provider }} onConnectWallet={openWalletPicker} />
 
 // Bridging from Solana also needs a Solana wallet: its address and a signer
-// that takes and returns wire-format bytes (Wallet Standard's shape).
+// that takes and returns wire-format bytes (Wallet Standard's shape). It also
+// finishes a transfer to Solana Circle did not deliver, and takes back the
+// SOL deposit a burn from Solana leaves (from 5 days after it).
 <Bridge
   wallet={{ address, provider }}
   solanaWallet={{ address: solAddress, signAndSendTransaction }}
@@ -85,8 +87,13 @@ cd contracts && forge test
 cd apps/site && npx vite build && WALLET=0x… SITE_URL=… npm run smoke   # real-Chrome check of the site
 
 # Live, with real funds (dry run unless --send; keys are read, never printed)
-KEY_FILE=… npm run live-withdraw -w packages/bridge -- --amount 1 --to solana --recipient <wallet>
+KEY_FILE=… npm run live-withdraw -w packages/bridge -- --amount 1 --to solana --recipient <wallet> [--no-forward]
 SOL_KEY_FILE=… npm run live-solana-deposit -w packages/bridge -- --amount 1 --recipient 0x…
+SOL_KEY_FILE=… npm run live-solana-claim -w packages/bridge -- --tx 0x<Injective burn>
+SOL_KEY_FILE=… npm run live-solana-refund -w packages/bridge -- --sig <Solana burn>
+
+# Solana claim and refund against mainnet, simulated, no funds
+npm run verify-solana-claims -w packages/bridge
 ```
 
 ## License
