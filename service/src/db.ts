@@ -296,6 +296,13 @@ export class Store {
       .all(a, a, before, limit) as TransferRow[];
   }
 
+  /** Transfers into `dstDomain` whose receiving wallet is not known, in any phase. */
+  missingRecipients(dstDomain: number, limit: number): TransferRow[] {
+    return this.db
+      .prepare("SELECT * FROM transfers WHERE dst_domain = ? AND recipient IS NULL ORDER BY first_seen DESC LIMIT ?")
+      .all(dstDomain, limit) as TransferRow[];
+  }
+
   phaseCounts(): Record<string, number> {
     const rows = this.db.prepare("SELECT phase, COUNT(*) AS n FROM transfers GROUP BY phase").all() as {
       phase: string;

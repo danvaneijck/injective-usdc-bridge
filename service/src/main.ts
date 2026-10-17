@@ -235,6 +235,14 @@ const loops = [
   ...(keeper ? [loop("keeper", async () => (await keeper.tick(), false), 3 * 60_000)] : []),
 ];
 
+if (solanaChain) {
+  // Best effort, off the startup path: wallets for transfers to Solana that finished without one.
+  void tracker.fillMissingSolanaRecipients(solanaChain.domain).then(
+    (filled) => filled > 0 && log.info("solana recipients filled", { filled }),
+    (e: unknown) => log.warn("solana recipient fill failed", { error: (e as Error).message }),
+  );
+}
+
 const server = serve({ fetch: api.fetch, port: config.port }, (info) => log.info("api listening", { port: info.port }));
 
 async function shutdown(signal: string) {

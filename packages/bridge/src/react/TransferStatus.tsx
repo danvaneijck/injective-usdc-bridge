@@ -1,7 +1,8 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { Component, type ReactNode, useEffect, useState } from "react";
 import { type Address, type Hex, getAddress } from "viem";
 import { chainByDomain, explorerTxUrl } from "../chains.js";
 import { USDC_DECIMALS } from "../constants.js";
+import { bytes32ToSolana } from "../solana.js";
 import type { TransferView } from "./api.js";
 import { ChainLogo, ChainPair } from "./ChainLogo.js";
 import { formatAmount, formatDuration, formatUsdc, shortAddress } from "./format.js";
@@ -80,7 +81,11 @@ export function TransferTracker({
         </button>
       ) : null}
       {data && data.length > 0 ? (
-        data.map((v) => <TransferCard key={v.id} env={env} view={v} now={now} {...wallets} onClaimed={refresh} />)
+        data.map((v) => (
+          <CardBoundary key={v.id} view={v}>
+            <TransferCard env={env} view={v} now={now} {...wallets} onClaimed={refresh} />
+          </CardBoundary>
+        ))
       ) : (
         <div className="iub-card">
           <div className="iub-card-head">
@@ -110,6 +115,36 @@ export function TransferTracker({
       )}
     </div>
   );
+}
+
+/**
+ * One transfer the card cannot draw (an answer shaped in a way this widget
+ * does not expect) costs that card, never the page around it.
+ */
+class CardBoundary extends Component<{ view: TransferView; children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render() {
+    if (!this.state.failed) return this.props.children;
+    const { source } = this.props.view;
+    return (
+      <div className="iub-card">
+        <Note tone="error">This transfer could not be shown here. It is safe; check it on the explorer.</Note>
+        <dl className="iub-facts">
+          <div>
+            <dt>Sent</dt>
+            <dd>
+              <TxLink hash={source.txHash} url={source.txUrl} />
+            </dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
 }
 
 export function StatusPill({ tone, headline }: { tone: Progress["tone"]; headline: string }) {
@@ -190,6 +225,7 @@ function TransferCard({
     }
   }
   const canSign = onSolana ? solanaWallet != null : Boolean(wallet?.address && wallet.provider);
+  const receiver = receiverOf(view);
   const connect = onSolana ? onConnectSolanaWallet : onConnectWallet;
 
   return (
@@ -220,15 +256,17 @@ function TransferCard({
       <Steps steps={p.steps} />
 
       <dl className="iub-facts">
-        <div>
-          <dt>Recipient</dt>
-          <dd>
-            <span className="iub-mono" title={view.recipient}>
-              {shortAddress(view.recipient)}
-            </span>
-            <CopyButton value={view.recipient} label="Copy recipient address" />
-          </dd>
-        </div>
+        {receiver ? (
+          <div>
+            <dt>{receiver.label}</dt>
+            <dd>
+              <span className="iub-mono" title={receiver.address}>
+                {shortAddress(receiver.address)}
+              </span>
+              <CopyButton value={receiver.address} label={`Copy ${receiver.label.toLowerCase()} address`} />
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>Sent</dt>
           <dd>
@@ -297,6 +335,22 @@ function TransferCard({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Who receives, as far as the service knows: the wallet, or for a transfer to
+ * Solana whose wallet is not read yet, the USDC account it names.
+ */
+export function receiverOf(view: TransferView): { label: string; address: string } | null {
+  if (view.recipient) return { label: "Recipient", address: view.recipient };
+  if (view.destination.chain === "solana" && view.mintRecipient) {
+    try {
+      return { label: "USDC account", address: bytes32ToSolana(view.mintRecipient as Hex) };
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 const formatSol = (lamports: bigint) => formatAmount(lamports, 9, 4);

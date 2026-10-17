@@ -31,7 +31,13 @@ export interface TransferView {
     mintTxUrl: string | null;
   };
   depositor: string;
-  recipient: string;
+  /**
+   * The wallet that receives. Null when the service does not know it, e.g. a
+   * transfer to Solana names only a USDC account and its owner is unread.
+   */
+  recipient: string | null;
+  /** The burn's mintRecipient, bytes32 hex: an EVM address, or a Solana USDC account. */
+  mintRecipient: string;
   attestedAt: string | null;
   deliveredAt: string | null;
   /** A call anyone may send to finish an attested, unminted transfer. */

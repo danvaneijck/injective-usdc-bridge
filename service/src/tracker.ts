@@ -194,6 +194,17 @@ export class Tracker {
     this.d.store.update(row, { ...base, phase: "ready", next_check_at: now + readyDelay(now - attestedAt) }, now);
   }
 
+  /**
+   * Checks only fill open transfers, so one finished before the service knew
+   * Solana (or minted between a check's lookup and its delivery read) keeps
+   * no wallet. Run at startup to catch those up.
+   */
+  async fillMissingSolanaRecipients(dstDomain: number, limit = 500): Promise<number> {
+    const rows = this.d.store.missingRecipients(dstDomain, limit);
+    await this.fillSolanaRecipients(rows);
+    return rows.filter((r) => r.recipient !== null).length;
+  }
+
   private async fillSolanaRecipients(rows: TransferRow[]): Promise<void> {
     if (!this.d.solanaOwner) return;
     for (const row of rows) {

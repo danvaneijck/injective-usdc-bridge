@@ -18,6 +18,7 @@ import { Store } from "../src/db.js";
 import { Health } from "../src/health.js";
 import { createLogger } from "../src/log.js";
 import { SolanaIndexer, burnsInTransaction } from "../src/solanaIndexer.js";
+import { Tracker } from "../src/tracker.js";
 import { Clock, LEGACY, RECEIVER, memStore } from "./helpers.js";
 
 const solana = chainByKey("mainnet", "solana") as SolanaChain;
@@ -178,6 +179,30 @@ describe("withdrawals to Solana", () => {
 
   it("leaves the wallet to be looked up when the account already existed", () => {
     expect(classify({ ...base, hookData: FORWARD_HOOK_DATA }, ctx)).toEqual({ kind: "forward", recipient: null });
+  });
+
+  it("catches up the wallet of a transfer that finished without one", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    const hash = `0x${"ef".repeat(32)}`;
+    const row = toNewTransfer({ ...base, hookData: "0x" }, { srcDomain: 29, txHash: hash, logIndex: 0, blockNumber: 1n, blockTime: 1 }, ctx);
+    store.insertTransfers([row], clock.t);
+    store.update(row, { phase: "delivered" }, clock.t); // finished before the service read Solana owners
+    const owners: Record<string, string> = { [solanaToBytes32(ata)]: owner };
+    const tracker = new Tracker({
+      store,
+      iris: {} as never,
+      irisLimiter: { take: async () => {} } as never,
+      network: "mainnet",
+      isNonceUsed: async () => true,
+      destinationBlock: async () => 0n,
+      solanaOwner: async (account) => owners[account] ?? null,
+      log,
+      now: clock.now,
+    });
+    expect(await tracker.fillMissingSolanaRecipients(5)).toBe(1);
+    expect(store.byTx(29, hash)[0]!.recipient).toBe(owner);
+    expect(await tracker.fillMissingSolanaRecipients(5)).toBe(0);
   });
 });
 

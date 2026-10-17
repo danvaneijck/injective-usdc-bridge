@@ -5,6 +5,7 @@ import { formatGasAmount, gasNeed, gasWarning } from "../src/react/gas.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
+import { receiverOf } from "../src/react/TransferStatus.js";
 import { toEvmAddress, toInjAddress } from "../src/address.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00Z");
@@ -25,6 +26,7 @@ function view(over: Partial<TransferView>): TransferView {
     destination: { domain: 29, chain: "injective", name: "Injective", mintTx: null, mintTxUrl: null },
     depositor: "0x1",
     recipient: "0x1",
+    mintRecipient: `0x${"00".repeat(31)}01`,
     attestedAt: null,
     deliveredAt: null,
     claim: null,
@@ -113,6 +115,21 @@ describe("durations and gas", () => {
     expect(gasWarning({ balance: need, need }, "ETH", "Base")).toBeNull();
     expect(gasWarning(null, "ETH", "Base")).toBeNull();
     expect(formatGasAmount(1_920_000_000_000n)).toBe("0.0000019");
+  });
+});
+
+describe("receiverOf", () => {
+  const toSolana = { domain: 5, chain: "solana", name: "Solana", mintTx: null, mintTxUrl: null };
+  // A real burn's mintRecipient: the USDC account AmEb5n..., owned by LoiT4g...
+  const ata = "0x910e19fd124b7d3ce8d6aa3c6694b388ba311c7a0e12f1391fa310fc01e2c07b";
+
+  it("shows the wallet, else the Solana USDC account, else nothing", () => {
+    expect(receiverOf(view({ recipient: "0xabc" }))).toEqual({ label: "Recipient", address: "0xabc" });
+    expect(receiverOf(view({ recipient: null, mintRecipient: ata, destination: toSolana }))).toEqual({
+      label: "USDC account",
+      address: "AmEb5nWjkqM9m1BJWish85xkNtXeQ57KHA62bZQjRLgz",
+    });
+    expect(receiverOf(view({ recipient: null }))).toBeNull();
   });
 });
 
