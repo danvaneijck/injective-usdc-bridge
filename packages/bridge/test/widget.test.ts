@@ -116,6 +116,15 @@ describe("durations and gas", () => {
     expect(gasWarning(null, "ETH", "Base")).toBeNull();
     expect(formatGasAmount(1_920_000_000_000n)).toBe("0.0000019");
   });
+
+  it("words a claim's gas, in SOL's 9 decimals on Solana", () => {
+    expect(gasWarning({ balance: 0n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe(
+      "This wallet has no SOL on Solana to pay for gas. Claiming needs about 0.001 SOL; add some first.",
+    );
+    expect(gasWarning({ balance: 400_000n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe(
+      "This wallet may not have enough SOL on Solana for gas: it has 0.0004, claiming needs about 0.001 SOL.",
+    );
+  });
 });
 
 describe("receiverOf", () => {

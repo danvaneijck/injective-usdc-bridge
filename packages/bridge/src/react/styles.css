@@ -544,6 +544,10 @@ button.iub-chain:active {
 .iub-segment button[aria-checked="true"] .iub-segment-title {
   color: var(--iub-text);
 }
+.iub-segment button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .iub-segment button[aria-checked="true"] .iub-segment-title svg {
   color: var(--iub-accent);
 }

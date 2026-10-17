@@ -150,10 +150,24 @@ await check("quotes a withdrawal with Circle delivery, never showing the old quo
   await page.getByRole("button", { name: "Swap direction" }).click();
   // Straight after the flip, the deposit's quote must be gone, not relabelled.
   if (await page.getByText("You claim it").count()) throw new Error("stale deposit quote shown for the withdrawal");
-  await page.getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await page.locator(".iub-fees div", { hasText: "Delivery" }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
   const circleFee = await page.locator(".iub-fees div", { hasText: "Circle fee" }).locator("dd").innerText();
   if (circleFee !== "Free") throw new Error(`Injective has no Fast transfer, but the Circle fee reads "${circleFee}"`);
   await page.screenshot({ path: `${OUT}/3-withdraw.png` });
+});
+
+await check("lets a withdrawal be claimed instead of paying for delivery", async () => {
+  const delivery = page.getByRole("radiogroup", { name: "Delivery" });
+  await delivery.getByRole("radio", { name: /Delivered for you/ }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await delivery.getByRole("radio", { name: /Claim it yourself/ }).click();
+  await page.locator(".iub-fees div", { hasText: "Delivery" }).getByText("You claim it").waitFor({ timeout: 20_000 });
+  await page.getByText(/^Once Circle approves it, claim it on/).waitFor();
+  // Circle's fee stays in view on the option not taken.
+  await delivery.getByRole("radio", { name: /Delivered for you/ }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/3b-withdraw-claim.png` });
+  await delivery.getByRole("radio", { name: /Delivered for you/ }).click();
+  await page.getByText(/^[\d.]+ USDC, by Circle$/).last().waitFor();
 });
 
 await check("shows activity", async () => {
@@ -198,7 +212,7 @@ await check("quotes a deposit from Solana", async () => {
 
 await check("quotes a withdrawal to Solana, delivered by Circle", async () => {
   await sp.getByRole("button", { name: "Swap direction" }).click();
-  await sp.getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await sp.locator(".iub-fees div", { hasText: "Delivery" }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
   await sp.getByText(`To your wallet on Solana`).waitFor();
   await sp.waitForTimeout(600);
   await sp.screenshot({ path: `${OUT}/10-solana-withdraw.png` });

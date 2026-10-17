@@ -75,6 +75,14 @@ export const IconBolt = () => (
   </svg>
 );
 
+/** A parcel: delivered for you. */
+export const IconParcel = () => (
+  <svg {...base}>
+    <path d="M2.75 5 8 2.25 13.25 5v6L8 13.75 2.75 11z" {...stroke} />
+    <path d="M2.75 5 8 7.75 13.25 5M8 7.75v6" {...stroke} />
+  </svg>
+);
+
 export const IconClock = () => (
   <svg {...base}>
     <circle cx="8" cy="8" r="6.25" {...stroke} />

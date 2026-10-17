@@ -10,7 +10,7 @@ import { feeOverrides, publicClientFor } from "../rpc.js";
 import { type SolanaRecipientCheck, checkSolanaRecipient, isSolanaAddress, solanaBalance, solanaTokenBalance } from "../solana.js";
 import { type MessageSentAccount, readMessageSentAccounts } from "../solanaClaim.js";
 import { BridgeApi, type LaneHealth, type TransferView } from "./api.js";
-import { gasNeed } from "./gas.js";
+import { SEND_GAS_UNITS, gasNeed } from "./gas.js";
 import { Journal, type JournalEntry } from "./journal.js";
 import { DEFAULT_API_URL } from "./types.js";
 
@@ -129,10 +129,13 @@ export function useSolanaRecipient(env: Env, chain: Chain, owner: string | null)
   ).data;
 }
 
-/** The sender's native balance on an EVM source chain, and the gas a send there needs. Null on Solana. */
-export function useSourceGas(env: Env, chain: Chain, owner: string | null): { balance: bigint; need: bigint } | null {
+/**
+ * A wallet's native balance on an EVM chain, and what `units` of gas cost
+ * there now (a send by default). Null on Solana or without a wallet.
+ */
+export function useGas(env: Env, chain: Chain, owner: string | null, units: bigint = SEND_GAS_UNITS): { balance: bigint; need: bigint } | null {
   return usePoll(
-    chain.kind === "evm" && owner ? `gas:${chain.key}:${owner}` : null,
+    chain.kind === "evm" && owner ? `gas:${chain.key}:${owner}:${units}` : null,
     async () => {
       const c = chain as EvmChain;
       const client = env.clientFor(c);
@@ -141,7 +144,7 @@ export function useSourceGas(env: Env, chain: Chain, owner: string | null): { ba
         client.getBalance({ address: owner as Address }),
         feeOverrides(client, c).then((f) => f?.maxFeePerGas ?? client.getGasPrice()),
       ]);
-      return { balance, need: gasNeed(fee) };
+      return { balance, need: gasNeed(fee, units) };
     },
     30_000,
   ).data;
@@ -175,14 +178,24 @@ export interface QuoteState {
 /** Fees for the form as it stands, re-asked 350 ms after the last change. */
 export function useQuote(
   env: Env,
-  q: { source: Chain; destination: Chain; amount: bigint | null; speed: Speed; gasDropFee: bigint; recipientSetup?: boolean; ready?: boolean },
+  q: {
+    source: Chain;
+    destination: Chain;
+    amount: bigint | null;
+    speed: Speed;
+    gasDropFee: bigint;
+    recipientSetup?: boolean;
+    /** Ask Circle to deliver; defaults to whenever it can. */
+    forward?: boolean;
+    ready?: boolean;
+  },
 ): QuoteState {
   // Each answer is kept with the inputs it was made for, so a quote for the
   // previous route, speed or amount is never shown (or signed) as this one's.
   const [state, setState] = useState<{ key: string | null; quote: Quote | null; error: string | null }>({ key: null, quote: null, error: null });
   const key =
     q.amount && q.amount > 0n && q.ready !== false
-      ? `${q.source.key}>${q.destination.key}:${q.amount}:${q.speed}:${q.gasDropFee}:${q.recipientSetup ? "setup" : ""}`
+      ? `${q.source.key}>${q.destination.key}:${q.amount}:${q.speed}:${q.gasDropFee}:${q.recipientSetup ? "setup" : ""}:${q.forward ?? ""}`
       : null;
   useEffect(() => {
     if (!key) return;
@@ -195,6 +208,7 @@ export function useQuote(
         speed: q.speed,
         gasDropFee: q.gasDropFee,
         recipientSetup: q.recipientSetup === true,
+        ...(q.forward !== undefined ? { forward: q.forward } : {}),
       }).then(
         (quote) => alive && setState({ key, quote, error: null }),
         (e: unknown) =>

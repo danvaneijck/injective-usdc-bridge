@@ -12,9 +12,9 @@ import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { gasWarning } from "./gas.js";
-import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useSourceGas, useUsdcBalance } from "./hooks.js";
-import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconWallet, Spinner } from "./icons.js";
+import { CLAIM_GAS_UNITS, gasWarning } from "./gas.js";
+import { type Env, useGasDrop, useInjBalance, useLanes, useQuote, useSolBalance, useSolanaRecipient, useGas, useUsdcBalance } from "./hooks.js";
+import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconParcel, IconWallet, Spinner } from "./icons.js";
 import { sendWithSolanaWallet } from "./solanaSend.js";
 import type { Eip1193Provider, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
@@ -28,6 +28,9 @@ const LOW_INJ = parseEther("0.01");
  * at signing; this only gates the button and labels the fee.
  */
 const SOL_FOR_BURN = (withHook: boolean) => (withHook ? 3_450_000n : 2_950_000n);
+/** SOL a claim on Solana takes: fees and the nonce account's rent (0.00071 measured 2026-10-17), plus 0.002 to open a USDC account. */
+const SOL_FOR_CLAIM = 1_000_000n;
+const SOL_FOR_CLAIM_OPENING = 3_200_000n;
 
 type Busy = null | "approving" | "sending" | "preparing" | "confirming";
 
@@ -72,6 +75,8 @@ export function BridgeForm({
   const [amountText, setAmountText] = useState("");
   const [speedChoice, setSpeedChoice] = useState<Speed | null>(null);
   const [dropChoice, setDropChoice] = useState<boolean | null>(null);
+  /** Withdrawals: claim on the destination instead of paying Circle to deliver. */
+  const [claimChoice, setClaimChoice] = useState(false);
   const [recipientText, setRecipientText] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
@@ -111,26 +116,57 @@ export function BridgeForm({
             : null;
 
   const balance = useUsdcBalance(env, source, sender);
-  const solBalance = useSolBalance(env, fromSolana ? solAddress : null);
-  const gas = useSourceGas(env, source, fromSolana ? null : address);
+  const gas = useGas(env, source, fromSolana ? null : address);
   const gasNote = gasWarning(gas, source.nativeSymbol, source.name);
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
   const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
-  const recipientSetup = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
+  const needsAccount = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
   const recipientProblem = toSolana && recipient && solRecipient && !solRecipient.ok ? RECIPIENT_PROBLEM[solRecipient.reason] : null;
+
+  // Delivery. Where Circle delivers, the user may claim instead and skip its
+  // fee; elsewhere claiming is the only way. A claim on Solana opens a missing
+  // USDC account, which takes its owner: only the connected wallet is sure.
+  const forwardable = !deposit && destination.forwarding;
+  const selfClaimable = !toSolana || (solRecipient?.ok === true && (solRecipient.tokenAccountExists || recipient === solAddress));
+  const selfClaim = !deposit && (!destination.forwarding || (claimChoice && selfClaimable));
+  const recipientSetup = needsAccount && !selfClaim;
+  const claimSol = needsAccount ? SOL_FOR_CLAIM_OPENING : SOL_FOR_CLAIM;
+
+  const solBalance = useSolBalance(env, fromSolana || (toSolana && selfClaim) ? solAddress : null);
+  const claimGas = useGas(env, destination, selfClaim && destination.kind === "evm" ? address : null, CLAIM_GAS_UNITS);
+  const claimGasNote = !selfClaim
+    ? null
+    : toSolana
+      ? solAddress
+        ? gasWarning(solBalance === null ? null : { balance: solBalance, need: claimSol }, "SOL", "Solana", "Claiming", 9)
+        : null
+      : gasWarning(claimGas, destination.nativeSymbol, destination.name, "Claiming");
+
   const drop = useGasDrop(env);
   const dropOffered = deposit && drop?.available === true && env.receiver !== undefined;
   const wantDrop = dropOffered && (dropChoice ?? (injBalance !== null && injBalance < LOW_INJ));
-  const { quote, error: quoteError, loading } = useQuote(env, {
+  const quoteInput = {
     source,
     destination,
     amount,
     speed,
     gasDropFee: wantDrop && drop ? drop.dropFee : 0n,
-    recipientSetup,
     // A Solana recipient's account check decides the fee; wait for it.
     ready: !toSolana || recipient === null || solRecipient !== null,
+  };
+  const { quote, error: quoteError, loading } = useQuote(env, {
+    ...quoteInput,
+    recipientSetup,
+    ...(forwardable ? { forward: !selfClaim } : {}),
   });
+  // Circle's fee stays on show while the user has chosen to claim instead.
+  const circleQuote = useQuote(env, {
+    ...quoteInput,
+    recipientSetup: needsAccount,
+    forward: true,
+    ready: quoteInput.ready && forwardable && selfClaim,
+  }).quote;
+  const deliveryFee = forwardable ? ((selfClaim ? circleQuote : quote)?.forwardingFee ?? null) : null;
   const lanes = useLanes(env);
   const slowLane = lanes.find((l) => l.domain === source.domain && l.status === "delayed");
 
@@ -324,6 +360,36 @@ export function BridgeForm({
           </div>
         ) : null}
 
+        {forwardable ? (
+          <div className="iub-segment" role="radiogroup" aria-label="Delivery" data-active={selfClaim ? "1" : "0"}>
+            <span className="iub-segment-indicator" aria-hidden />
+            <button type="button" role="radio" aria-checked={!selfClaim} onClick={() => setClaimChoice(false)}>
+              <span className="iub-segment-title">
+                <IconParcel /> Delivered for you
+              </span>
+              <span className="iub-segment-sub">{deliveryFee !== null ? `${formatUsdc(deliveryFee, 6)} USDC, by Circle` : "By Circle, for a small fee"}</span>
+            </button>
+            <button type="button" role="radio" aria-checked={selfClaim} disabled={!selfClaimable} onClick={() => setClaimChoice(true)}>
+              <span className="iub-segment-title">
+                <IconWallet /> Claim it yourself
+              </span>
+              <span className="iub-segment-sub">
+                {!selfClaimable
+                  ? "Circle must open their USDC account"
+                  : toSolana
+                    ? `No fee, about ${formatAmount(claimSol, 9, 4)} SOL to claim`
+                    : `No fee, you pay ${destination.nativeSymbol} gas on ${destination.name}`}
+              </span>
+            </button>
+          </div>
+        ) : null}
+        {forwardable && selfClaim ? (
+          <Note>
+            Once Circle approves it, claim it on {destination.name} from the transfer page or Activity: one transaction
+            {toSolana ? " from any Solana wallet" : ` from this wallet, with ${destination.nativeSymbol} for gas`}. It waits for you until you do.
+          </Note>
+        ) : null}
+
         {dropOffered && drop ? (
           <button type="button" role="switch" aria-checked={wantDrop} className="iub-toggle-row" onClick={() => setDropChoice(!wantDrop)}>
             <ChainLogo chain="injective" name="Injective" size={32} />
@@ -426,6 +492,7 @@ export function BridgeForm({
         ) : null}
 
         {gasNote && !busy ? <Note tone="warn">{gasNote}</Note> : null}
+        {claimGasNote && !busy ? <Note tone="warn">{claimGasNote}</Note> : null}
         {error ? <Note tone="error">{error}</Note> : null}
 
         <button type="button" className={busy ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={!action.enabled} onClick={action.run}>

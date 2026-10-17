@@ -300,6 +300,16 @@ Choice v2 look, themeable):
   rules ask), rendered as `<img>` data URLs in circles; an unknown chain gets
   a lettered disc. Order everywhere is the registry's: Injective, Solana,
   HyperEVM (the most used, 2026-10-17), then the rest.
+- Withdrawals to a chain Circle delivers on offer a choice (Dan, 2026-10-17):
+  "Delivered for you" (the default, Circle's fee shown) or "Claim it
+  yourself" (no fee; the transfer page and Activity offer the claim the
+  moment Circle approves, one transaction with the destination's gas). Fees
+  it skips: about 0.05-0.08 USDC to L2s, 0.13 to Solana, about 1 USDC to
+  Ethereum. To Solana the claim may have to open the recipient's USDC
+  account, which needs its owner, so it is offered when that account exists
+  or the recipient is the connected Solana wallet. Choosing it checks the
+  claimer's gas on the destination (250k gas on EVM chains; 0.001 SOL, 0.0032
+  when opening the account) and warns, as for sending.
 - Before signing on an EVM chain the form reads the sender's native balance
   and warns (never blocks: sponsored-gas wallets send with none) when it is
   under approve plus burn at today's gas price (600k gas, measured on
