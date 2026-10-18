@@ -664,12 +664,6 @@ button {
   font-size: 13px;
   line-height: 20px;
 }
-.site-error {
-  margin: 12px 4px 0;
-  color: var(--site-negative);
-  font-size: 13px;
-  animation: site-fade 0.2s ease;
-}
 
 /* ── Status page ───────────────────────────────────────────────────────── */
 .status {

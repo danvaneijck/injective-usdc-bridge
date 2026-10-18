@@ -321,7 +321,6 @@ export function WalletPicker({
   const choices: Choice[] = wc
     ? [...browser, { id: "walletconnect", name: "WalletConnect", icon: WC_ICON, last: lastEvm === "walletconnect", sub: "Phone wallets, by QR code", connect: wc.connect }]
     : browser;
-  const error = kind === "evm" ? evm.error : solana.error;
   const close = () => {
     wc?.cancel();
     onClose();
@@ -405,7 +404,6 @@ export function WalletPicker({
           </ul>
         </>
       )}
-      {error ? <p className="site-error">{error}</p> : null}
     </Modal>
   );
 }

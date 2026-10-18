@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SolanaWallet } from "injective-usdc-bridge/react";
+import { type SolanaWallet, showToast } from "injective-usdc-bridge/react";
 
 /**
  * Solana wallets for the standalone site, found through Wallet Standard (how
@@ -104,7 +104,6 @@ export interface SolanaWalletState {
   address: string | null;
   connect(w: StandardWallet): Promise<void>;
   disconnect(): void;
-  error: string | null;
   /** What the widget takes. */
   bridgeWallet: SolanaWallet | null;
 }
@@ -113,7 +112,6 @@ export function useSolanaWallet(): SolanaWalletState {
   const wallets = useStandardWallets();
   const [active, setActive] = useState<StandardWallet | null>(null);
   const [account, setAccount] = useState<StandardAccount | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const pick = (accounts: readonly StandardAccount[]) => accounts.find((a) => a.chains.some((c) => c.startsWith("solana:"))) ?? accounts[0] ?? null;
 
@@ -152,7 +150,6 @@ export function useSolanaWallet(): SolanaWalletState {
   }, [active]);
 
   const connect = useCallback(async (w: StandardWallet) => {
-    setError(null);
     try {
       const { accounts } = await feature<ConnectFeature>(w, "standard:connect")!.connect();
       const a = pick(accounts);
@@ -162,7 +159,7 @@ export function useSolanaWallet(): SolanaWalletState {
       remember(w.name);
     } catch (e) {
       const err = e as { code?: number; message?: string };
-      setError(err.code === 4001 || /reject|denied|cancel/i.test(err.message ?? "") ? "Connection cancelled in your wallet." : (err.message ?? "Could not connect"));
+      showToast(err.code === 4001 || /reject|denied|cancel/i.test(err.message ?? "") ? "Connection cancelled in your wallet." : (err.message ?? "Could not connect"));
     }
   }, []);
 
@@ -186,5 +183,5 @@ export function useSolanaWallet(): SolanaWalletState {
     };
   }, [active, account]);
 
-  return { wallets, active, address: account?.address ?? null, connect, disconnect, error, bridgeWallet };
+  return { wallets, active, address: account?.address ?? null, connect, disconnect, bridgeWallet };
 }

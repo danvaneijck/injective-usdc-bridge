@@ -1564,9 +1564,6 @@ button.iub-asset:active {
   padding: 0 14px;
   gap: 8px;
 }
-.iub-refund-error {
-  grid-column: 1 / -1;
-}
 
 /* ── Activity ──────────────────────────────────────────────────────────── */
 .iub-activity {
@@ -1739,5 +1736,108 @@ button.iub-asset:active {
   }
   .iub-spinner {
     animation-duration: 2.4s;
+  }
+}
+
+/* ── Toasts: passing messages, bottom right, gone on their own ────────── */
+/* Portalled to <body>, outside .iub, so they carry their own tokens. */
+.iub-toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+  font-family: "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.iub-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 10px 12px 14px;
+  border-radius: 14px;
+  /* surface-float, as the exchange's popovers. */
+  background: color-mix(in srgb, #15161a 98%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 64px -12px rgba(0, 0, 0, 0.75);
+  color: #ededf0;
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: auto;
+  animation: iub-toast-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.iub-toast > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.iub-toast-error > svg {
+  color: #fb7185;
+}
+.iub-toast-info > svg {
+  color: #9295a0;
+}
+.iub-toast > span {
+  flex: 1;
+  min-width: 0;
+}
+.iub-toast > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -2px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: #757987;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.iub-toast > button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ededf0;
+}
+.iub-toast-leaving {
+  animation: iub-toast-out 0.2s ease-in forwards;
+}
+@keyframes iub-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes iub-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+/* A phone: across the bottom, clear of the home indicator. */
+@media (max-width: 560px) {
+  .iub-toasts {
+    right: 16px;
+    left: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    align-items: stretch;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .iub-toast,
+  .iub-toast-leaving {
+    animation-duration: 1ms;
   }
 }

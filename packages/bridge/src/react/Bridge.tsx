@@ -7,6 +7,7 @@ import { useActivity, useEnv } from "./hooks.js";
 import { progressOf } from "./progress.js";
 import type { TransferView } from "./api.js";
 import { TransferTracker } from "./TransferStatus.js";
+import { Toasts } from "./toast.js";
 import type { BridgeProps } from "./types.js";
 
 type View =
@@ -38,6 +39,7 @@ export function Bridge(props: BridgeProps) {
 
   return (
     <div className={`iub ${props.className ?? ""}`}>
+      <Toasts />
       <div className="iub-tabs" role="tablist" data-active={tab === "form" ? "0" : "1"}>
         <span className="iub-tabs-indicator" aria-hidden />
         <button type="button" role="tab" aria-selected={tab === "form"} onClick={() => setView({ name: "form" })}>

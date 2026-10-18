@@ -31,6 +31,7 @@ import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconPa
 import { sendWithSolanaWallet } from "./solanaSend.js";
 import type { Eip1193Provider, SolanaWallet } from "./types.js";
 import { canBatch, friendlyError, sendBatch, sendCall } from "./wallet.js";
+import { showToast } from "./toast.js";
 
 /** Under this much INJ, the gas drop starts ticked. */
 const LOW_INJ = parseEther("0.01");
@@ -93,7 +94,6 @@ export function BridgeForm({
   const [recipientText, setRecipientText] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
-  const [error, setError] = useState<string | null>(null);
   const [flips, setFlips] = useState(0);
   const [details, setDetails] = useState(false);
   /** A send pressed mid re-check: the amount it showed, to hold the fresh quote to. */
@@ -231,7 +231,6 @@ export function BridgeForm({
     setDirection(deposit ? "withdraw" : "deposit");
     setRecipientText(null);
     setSpeedChoice(null);
-    setError(null);
     setFlips((n) => n + 1);
   }
 
@@ -295,11 +294,10 @@ export function BridgeForm({
 
   async function submit() {
     if (!quote || !recipient || !fresh) return;
-    setError(null);
     try {
       await (fromSolana ? submitSolana() : submitEvm());
     } catch (e) {
-      setError(friendlyError(e));
+      showToast(friendlyError(e));
     } finally {
       setBusy(null);
     }
@@ -370,8 +368,7 @@ export function BridgeForm({
           : `Fees${upTo} ${cap(fee)} USDC`;
   const hasOptions = source.fastSource || (forwardable && selfClaimable) || (dropOffered && drop !== null);
   const setupHint = shown?.recipientSetup === true;
-  const solHint = fromSolana;
-  const expandable = hasOptions || setupHint || solHint;
+  const expandable = hasOptions || setupHint;
 
   return (
     <>
@@ -552,17 +549,11 @@ export function BridgeForm({
             total cost are on the line above, and the chosen option says who
             delivers. Only what is shown nowhere else gets a line. */}
         {setupHint ? <p className="iub-options-hint">Circle opens a USDC account for the recipient; it is in the delivery fee.</p> : null}
-        {solHint ? (
-          <p className="iub-options-hint">
-            Sending from Solana also costs about {formatAmount(solNeeded, 9, 4)} SOL in network fees, most of it back after 5 days.
-          </p>
-        ) : null}
               </div>
             </div>
           </div>
         </div>
 
-        {error ? <Note tone="error">{error}</Note> : null}
 
         <button
           type="button"

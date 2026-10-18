@@ -13,6 +13,7 @@ import { type Progress, type Step, progressOf } from "./progress.js";
 import { claimOnSolana, reclaimDeposit, refundState } from "./refunds.js";
 import type { BridgeWallet, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
+import { Toasts, showToast } from "./toast.js";
 
 export interface TransferStatusProps {
   /** CCTP domain of the source chain. */
@@ -38,6 +39,7 @@ export function TransferStatus(props: TransferStatusProps) {
   const env = useEnv(props);
   return (
     <div className={`iub ${props.className ?? ""}`}>
+      <Toasts />
       <div className="iub-view">
         <TransferTracker
           env={env}
@@ -223,7 +225,6 @@ function TransferCard({
 }) {
   const p = progressOf(view, now);
   const [claiming, setClaiming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const sent = view.source.time ? Date.parse(view.source.time) : null;
   const took = view.deliveredAt && sent !== null ? Date.parse(view.deliveredAt) - sent : null;
   const onSolana = (view.solanaClaim ?? null) !== null;
@@ -232,7 +233,6 @@ function TransferCard({
 
   async function claim() {
     setClaiming(true);
-    setError(null);
     try {
       if (onSolana) {
         if (!solanaWallet) return;
@@ -250,7 +250,7 @@ function TransferCard({
       await env.api.hint(view.source.domain, view.source.txHash);
       onClaimed();
     } catch (e) {
-      setError(friendlyError(e));
+      showToast(friendlyError(e));
     } finally {
       setClaiming(false);
     }
@@ -344,12 +344,6 @@ function TransferCard({
               {onSolana ? "Connect a Solana wallet to complete it" : "Connect a wallet to complete it"}
             </button>
           ) : null}
-          {error ? (
-            <div className="iub-note iub-note-error" role="alert">
-              <IconAlert />
-              <span>{error}</span>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -421,16 +415,14 @@ function RefundAction({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   async function reclaim() {
     if (!solanaWallet) return;
     setBusy(true);
-    setError(null);
     try {
       await reclaimDeposit(env, solanaWallet, view);
       onDone();
     } catch (e) {
-      setError(friendlyError(e));
+      showToast(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -451,7 +443,6 @@ function RefundAction({
           Connect a Solana wallet to reclaim it
         </button>
       ) : null}
-      {error ? <Note tone="error">{error}</Note> : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { progressOf } from "./progress.js";
 import { reclaimDeposit, refundState } from "./refunds.js";
 import { StatusPill } from "./TransferStatus.js";
 import type { SolanaWallet } from "./types.js";
+import { showToast } from "./toast.js";
 import { friendlyError } from "./wallet.js";
 
 export function Activity({
@@ -154,15 +155,13 @@ function ViewRow({ view: v, index, now, onOpen }: { view: TransferView; index: n
 function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number, txHash: string, known?: TransferView[]) => void; onAddress: (address: string) => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function find() {
     const q = parseLookup(text);
     if (!q) {
-      setError(text.trim() ? "That is not a transaction hash or an address." : null);
+      if (text.trim()) showToast("That is not a transaction hash or an address.");
       return;
     }
-    setError(null);
     if (q.kind === "address") {
       setText("");
       onAddress(q.address);
@@ -176,10 +175,10 @@ function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number,
         setText("");
         onOpen(first.source.domain, first.source.txHash, found.filter((v) => v.source.domain === first.source.domain));
       } else {
-        setError("No transfer to or from Injective in that transaction. If it was sent moments ago, try again in a minute.");
+        showToast("No transfer to or from Injective in that transaction. If it was sent moments ago, try again in a minute.");
       }
     } catch {
-      setError("The bridge service did not answer. Try again.");
+      showToast("The bridge service did not answer. Try again.");
     } finally {
       setBusy(false);
     }
@@ -203,10 +202,7 @@ function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number,
           value={text}
           spellCheck={false}
           autoComplete="off"
-          onChange={(e) => {
-            setText(e.target.value);
-            setError(null);
-          }}
+          onChange={(e) => setText(e.target.value)}
         />
         {busy ? (
           <Spinner />
@@ -216,12 +212,6 @@ function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number,
           </button>
         ) : null}
       </label>
-      {error ? (
-        <div className="iub-note iub-note-error" role="alert">
-          <IconAlert />
-          <span>{error}</span>
-        </div>
-      ) : null}
     </form>
   );
 }
@@ -300,19 +290,17 @@ function RefundBanner({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const total = refundable.reduce((sum, r) => sum + r.lamports, 0n);
   const n = refundable.length;
 
   async function run() {
-    setError(null);
     const queue = [...refundable];
     for (let i = 0; i < queue.length; i++) {
       setBusy(i);
       try {
         await reclaimDeposit(env, wallet, queue[i]!.view);
       } catch (e) {
-        setError(friendlyError(e));
+        showToast(friendlyError(e));
         break;
       }
     }
@@ -331,12 +319,6 @@ function RefundBanner({
         {busy !== null ? <Spinner /> : null}
         {busy === null ? "Reclaim" : n > 1 ? `${busy + 1} of ${n}` : "Confirm"}
       </button>
-      {error ? (
-        <div className="iub-note iub-note-error iub-refund-error" role="alert">
-          <IconAlert />
-          <span>{error}</span>
-        </div>
-      ) : null}
     </div>
   );
 }
