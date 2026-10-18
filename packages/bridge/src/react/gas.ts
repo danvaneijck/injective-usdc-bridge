@@ -21,9 +21,12 @@ export function formatGasAmount(wei: bigint, decimals = 18): string {
 
 /**
  * What to tell the sender before they sign, or null when the gas is there.
- * Only a warning: a smart wallet with sponsored gas sends with none.
+ * Short enough to sit under the button's label, which is where the form shows
+ * it: one message where the eye already is, never a box beside a button that
+ * says something else. Only a warning: a smart wallet with sponsored gas
+ * sends with none.
  */
-export function gasWarning(
+export function gasShort(
   gas: { balance: bigint; need: bigint } | null,
   symbol: string,
   chainName: string,
@@ -31,8 +34,9 @@ export function gasWarning(
   decimals = 18,
 ): string | null {
   if (!gas || gas.balance >= gas.need) return null;
-  const need = `about ${formatGasAmount(gas.need, decimals)} ${symbol}`;
+  const purpose = action === "Sending" ? "for gas" : "to claim with";
+  const need = `needs ~${formatGasAmount(gas.need, decimals)}`;
   return gas.balance === 0n
-    ? `This wallet has no ${symbol} on ${chainName} to pay for gas. ${action} needs ${need}; add some first.`
-    : `This wallet may not have enough ${symbol} on ${chainName} for gas: it has ${formatGasAmount(gas.balance, decimals)}, ${action.toLowerCase()} needs ${need}.`;
+    ? `No ${symbol} on ${chainName} ${purpose} (${need})`
+    : `Low ${symbol} on ${chainName} ${purpose} (${need})`;
 }

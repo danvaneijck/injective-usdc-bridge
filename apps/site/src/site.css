@@ -1,19 +1,33 @@
+/* Choice v2's tokens (choice_v2_frontend src/index.css), so the bridge reads
+   as a page of the exchange rather than a site of its own. */
 :root {
   color-scheme: dark;
   --site-bg: #08090b;
-  --site-panel: #101116;
-  --site-text: #ececef;
-  --site-muted: #9a9ca4;
-  --site-dim: #686b75;
+  --site-panel: #0f1013;
+  --site-text: #ededf0;
+  --site-muted: #9295a0;
+  --site-dim: #757987;
   --site-accent: #fdc70c;
-  --site-raised: #16171c;
-  --site-hover: #1d1e25;
-  --site-border: #1f2027;
-  --site-border-strong: #2c2d36;
+  --site-raised: #1c1d23;
+  --site-hover: #23242b;
+  --site-border: rgba(255, 255, 255, 0.06);
+  --site-border-strong: rgba(255, 255, 255, 0.1);
+  /* Page edge to content: 16, then 32 from 1024, 48 from 1440. */
+  --site-gutter: 16px;
   --site-positive: #34d399;
   --site-warning: #fbbf24;
   --site-negative: #fb7185;
   --site-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (min-width: 1024px) {
+  :root {
+    --site-gutter: 32px;
+  }
+}
+@media (min-width: 1440px) {
+  :root {
+    --site-gutter: 48px;
+  }
 }
 * {
   box-sizing: border-box;
@@ -89,15 +103,6 @@ button {
     transform: translateY(-4px) scale(0.98);
   }
 }
-@keyframes site-drift {
-  0%,
-  100% {
-    transform: translate(-50%, 0) scale(1);
-  }
-  50% {
-    transform: translate(-48%, 14px) scale(1.06);
-  }
-}
 @keyframes site-spin {
   to {
     transform: rotate(360deg);
@@ -125,121 +130,110 @@ button {
 .site {
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
   isolation: isolate;
 }
-/* A warm glow behind the widget and a faint grid that fades out. */
+/* The exchange's atmosphere: a warm bloom under the header, a cool one low on
+   the far side, both too faint to read as colour. Fixed, as there. */
 .site::before {
   content: "";
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: -2;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(900px 520px at 50% 0%, #000 20%, transparent 75%);
-  -webkit-mask-image: radial-gradient(900px 520px at 50% 0%, #000 20%, transparent 75%);
-}
-.site-glow {
-  position: absolute;
-  top: -260px;
-  left: 50%;
   z-index: -1;
-  width: 980px;
-  height: 620px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(253, 199, 12, 0.13), rgba(253, 199, 12, 0.04) 55%, transparent);
-  transform: translate(-50%, 0);
-  animation: site-drift 14s ease-in-out infinite;
   pointer-events: none;
+  background:
+    radial-gradient(70rem 30rem at 18% -12rem, rgba(253, 199, 12, 0.08), transparent 70%),
+    radial-gradient(60rem 40rem at 100% 35%, rgba(155, 138, 251, 0.05), transparent 70%),
+    radial-gradient(50rem 30rem at 0% 110%, rgba(45, 212, 191, 0.035), transparent 70%);
 }
 
-/* ── Header ────────────────────────────────────────────────────────────── */
+/* ── Header: the exchange's bar, 56 tall (64 from 768), content-width ───── */
 .site-head {
   position: relative;
   z-index: 5;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 16px 24px;
+  width: 100%;
+  max-width: 1600px;
+  height: 56px;
+  margin: 0 auto;
+  padding: 0 var(--site-gutter);
+}
+@media (min-width: 768px) {
+  .site-head {
+    height: 64px;
+  }
 }
 .site-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  justify-self: start;
+  gap: 8px;
+  height: 40px;
+  margin-left: -6px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
   text-decoration: none;
-  font-size: 17px;
-}
-.site-brand strong {
-  color: var(--site-accent);
-}
-.site-brand img {
-  transition: transform 0.4s var(--site-ease);
-}
-.site-brand:hover img {
-  transform: rotate(-12deg) scale(1.05);
-}
-.site-nav {
-  display: inline-flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 14px;
-  background: rgba(16, 17, 22, 0.7);
-  border: 1px solid var(--site-border);
-  backdrop-filter: blur(8px);
-}
-.site-nav-link {
-  padding: 7px 14px;
-  border-radius: 10px;
-  color: var(--site-muted);
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 600;
-  text-decoration: none;
-  transition:
-    color 0.15s ease,
-    background 0.2s ease;
+  letter-spacing: -0.025em;
+  transition: background 0.15s ease;
 }
-.site-nav-link:hover {
-  color: var(--site-text);
+.site-brand:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
-.site-nav-link[aria-current="page"] {
-  color: var(--site-text);
-  background: var(--site-raised);
-  box-shadow: inset 0 0 0 1px var(--site-border-strong);
+/* "Choice" as the exchange sets it; "Bridge" one tier down, a page of it. */
+.site-brand strong {
+  color: var(--site-muted);
+  font-weight: 500;
 }
 .site-connect,
 .site-account {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 42px;
-  padding: 0 18px;
-  border-radius: 12px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
   border: 0;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   white-space: nowrap;
   transition:
-    background 0.2s ease,
-    transform 0.12s ease,
-    box-shadow 0.2s ease,
-    border-color 0.15s ease;
+    background 0.15s ease,
+    filter 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
+@media (min-width: 768px) {
+  .site-connect,
+  .site-account {
+    height: 40px;
+  }
+}
+/* btn-gold, as the exchange's Connect Wallet. */
 .site-connect {
-  background: var(--site-accent);
-  color: #0a0b0d;
+  background: linear-gradient(180deg, #ffd94a, #f2b705);
+  color: #14110a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 8px 24px -10px rgba(253, 199, 12, 0.55);
 }
 .site-connect:hover {
-  background: #ffd43b;
-  box-shadow: 0 8px 24px -8px rgba(253, 199, 12, 0.5);
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 10px 32px -10px rgba(253, 199, 12, 0.7);
 }
 .site-connect:active,
 .site-account:active {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 .site-wallet-bar {
   justify-self: end;
@@ -269,20 +263,23 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   margin: 8px 0 14px;
-  padding: 4px;
-  border-radius: 14px;
-  background: #0c0d11;
-  border: 1px solid var(--site-border);
+  padding: 3px;
+  /* The exchange's SegmentedControl, as in the widget's tabs. */
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 .site-kind-indicator {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc(50% - 4px);
-  border-radius: 10px;
-  background: var(--site-raised);
-  box-shadow: inset 0 0 0 1px var(--site-border-strong);
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.45);
   transition: transform 0.32s var(--site-ease);
 }
 .site-kind[data-active="1"] .site-kind-indicator {
@@ -296,25 +293,25 @@ button {
   gap: 7px;
   padding: 8px 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 999px;
   background: none;
   color: var(--site-muted);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   transition: color 0.2s ease;
 }
 .site-kind button[aria-selected="true"] {
   color: var(--site-text);
 }
+/* The exchange's connected-wallet chip: a quiet pill, no outline. */
 .site-account {
-  padding: 0 12px 0 10px;
-  background: var(--site-raised);
-  border: 1px solid var(--site-border);
+  padding: 0 14px 0 4px;
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 .site-account:hover {
-  border-color: var(--site-border-strong);
-  background: var(--site-hover);
+  background: rgba(255, 255, 255, 0.1);
 }
 .site-caret {
   color: var(--site-muted);
@@ -342,9 +339,12 @@ button {
   width: 240px;
   padding: 6px;
   border-radius: 16px;
-  background: var(--site-panel);
-  border: 1px solid var(--site-border-strong);
-  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
+  /* surface-float: near-opaque, as the exchange's menus and popovers. */
+  background: color-mix(in srgb, #15161a 98%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 64px -12px rgba(0, 0, 0, 0.75);
   transform-origin: top right;
   animation: site-menu-in 0.18s var(--site-ease);
 }
@@ -410,14 +410,8 @@ button {
   margin: 0 0 10px;
   font-size: 30px;
   line-height: 38px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
-}
-.site-hl {
-  background: linear-gradient(90deg, #fdc70c, #ffe27a);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 .site-intro p {
   margin: 0 auto;
@@ -425,29 +419,6 @@ button {
   color: var(--site-muted);
   font-size: 14.5px;
   line-height: 22px;
-}
-.site-chains {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  list-style: none;
-  margin: 18px auto 0;
-  padding: 0;
-}
-.site-chains li {
-  border-radius: 50%;
-  animation: site-pop 0.4s var(--site-ease) both;
-  transition: transform 0.2s var(--site-ease);
-}
-.site-chains li:hover {
-  position: relative;
-  z-index: 1;
-  transform: translateY(-3px) scale(1.15);
-}
-.site-chains img,
-.site-chains span {
-  display: block;
 }
 .site-new {
   color: var(--site-muted);
@@ -466,7 +437,7 @@ button {
   gap: 8px 22px;
   padding: 20px 16px 30px;
   color: var(--site-dim);
-  font-size: 12px;
+  font-size: 13px;
 }
 .site-foot a {
   text-decoration: none;
@@ -489,7 +460,7 @@ button {
 .site-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(3, 4, 6, 0.66);
+  background: rgba(4, 4, 5, 0.75);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: site-fade 0.22s ease;
@@ -499,10 +470,12 @@ button {
   width: 100%;
   max-width: 380px;
   padding: 16px;
-  border-radius: 22px;
-  background: var(--site-panel);
-  border: 1px solid var(--site-border-strong);
-  box-shadow: 0 32px 80px -16px rgba(0, 0, 0, 0.8);
+  border-radius: 20px;
+  background: color-mix(in srgb, #15161a 98%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 64px -12px rgba(0, 0, 0, 0.75);
   animation: site-pop 0.3s var(--site-ease);
 }
 .site-modal:focus {
@@ -643,7 +616,7 @@ button {
   background: rgba(253, 199, 12, 0.12);
   color: var(--site-accent);
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .site-go {
   color: var(--site-dim);
@@ -869,7 +842,7 @@ button {
   padding: 3px 9px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   --tone: var(--site-positive);
   color: var(--tone);
   background: color-mix(in srgb, var(--tone) 12%, transparent);
@@ -945,17 +918,11 @@ button {
 
 @media (max-width: 560px) {
   .site-head {
-    grid-template-columns: auto 1fr auto;
     padding: 12px 16px;
   }
-  .site-brand span {
+  /* Two wallet chips need the room the wordmark takes. */
+  .site-head:has(.site-account-solana) .site-brand span {
     display: none;
-  }
-  .site-nav {
-    justify-self: center;
-  }
-  .site-nav-link {
-    padding: 7px 11px;
   }
   .site-connect {
     padding: 0 14px;
@@ -988,7 +955,7 @@ button {
     line-height: 31px;
   }
   .site-main {
-    padding-top: 16px;
+    padding-top: 4px;
   }
   .status-hero {
     flex-wrap: wrap;
@@ -1012,6 +979,23 @@ button {
   .site-closing .site-modal {
     animation: site-sink 0.22s ease-in forwards;
   }
+}
+
+/* The wordmark and "Connect wallet" need ~360px with the gutters; on the
+   narrowest phones the logo alone stands for the brand. */
+@media (max-width: 370px) {
+  .site-brand span {
+    display: none;
+  }
+}
+
+.site-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

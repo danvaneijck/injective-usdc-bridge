@@ -12,7 +12,7 @@ import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { CLAIM_GAS_UNITS, formatGasAmount, gasWarning } from "./gas.js";
+import { CLAIM_GAS_UNITS, formatGasAmount, gasShort } from "./gas.js";
 import {
   type Env,
   richestChain,
@@ -96,6 +96,8 @@ export function BridgeForm({
   const [error, setError] = useState<string | null>(null);
   const [flips, setFlips] = useState(0);
   const [details, setDetails] = useState(false);
+  /** A send pressed mid re-check: the amount it showed, to hold the fresh quote to. */
+  const [queued, setQueued] = useState<bigint | null>(null);
   /** The user (or the host, through defaultChain) chose the chain: never move it for them. */
   const [chainChosen, setChainChosen] = useState(defaultChain !== undefined);
   const body = useRef<HTMLDivElement>(null);
@@ -148,7 +150,7 @@ export function BridgeForm({
     }
   }, [address, solAddress, balances, chainChosen, deposit, peer.key]);
   const gas = useGas(env, source, fromSolana ? null : address);
-  const gasNote = gasWarning(gas, source.nativeSymbol, source.name);
+  const gasNote = gasShort(gas, source.nativeSymbol, source.name);
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
   const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
   const needsAccount = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
@@ -171,13 +173,19 @@ export function BridgeForm({
     ? null
     : toSolana
       ? solAddress
-        ? gasWarning(solBalance === null ? null : { balance: solBalance, need: claimSol }, "SOL", "Solana", "Claiming", 9)
+        ? gasShort(solBalance === null ? null : { balance: solBalance, need: claimSol }, "SOL", "Solana", "Claiming", 9)
         : null
-      : gasWarning(claimGas, destination.nativeSymbol, destination.name, "Claiming");
+      : gasShort(claimGas, destination.nativeSymbol, destination.name, "Claiming");
 
   const drop = useGasDrop(env);
   const dropOffered = deposit && drop?.available === true && env.receiver !== undefined;
-  const wantDrop = dropOffered && (dropChoice ?? (injBalance !== null && injBalance < LOW_INJ));
+  // The default follows the connected wallet's INJ while it is the recipient.
+  // A typed address never moves it: following that re-priced the transfer
+  // mid-typing and changed the amount under the user's eyes. The toggle is
+  // right there for anyone sending to a wallet without INJ.
+  const autoDrop = useRef(false);
+  if (injBalance !== null && recipientText === null) autoDrop.current = injBalance < LOW_INJ;
+  const wantDrop = dropOffered && (dropChoice ?? autoDrop.current);
   const quoteInput = {
     source,
     destination,
@@ -204,6 +212,16 @@ export function BridgeForm({
   const slowLane = lanes.find((l) => l.domain === source.domain && l.status === "delayed");
 
   const fresh = quote !== null && amount !== null && quote.amount === amount;
+  // While a re-quote for the same route and amount is in flight (the speed or
+  // the gas drop changed), keep the last answer on screen, dimmed, instead of
+  // blanking it. Display only: the button still waits for the fresh quote.
+  const route = `${source.key}>${destination.key}`;
+  const lastQuote = useRef<{ route: string; quote: NonNullable<typeof quote> } | null>(null);
+  if (fresh) lastQuote.current = { route, quote };
+  const held = lastQuote.current?.route === route && lastQuote.current.quote.amount === amount ? lastQuote.current.quote : null;
+  // Not only while loading: a Solana recipient being checked holds the quote
+  // back entirely (no key, not loading), and that path showed "0.00".
+  const shown = fresh ? quote : held;
   const fastEta = expectedAttestMs(env.network, source.domain, FINALITY.fast);
   const standardEta = expectedAttestMs(env.network, source.domain, FINALITY.standard);
   const eta = speed === "fast" ? fastEta : standardEta;
@@ -287,26 +305,73 @@ export function BridgeForm({
     }
   }
 
+  const readyLabel = deposit ? "Bridge to Injective" : `Bridge to ${destination.name}`;
   let action: { label: string; enabled: boolean; run?: () => void };
   if (fromSolana && !solAddress) {
     action = { label: "Connect a Solana wallet", enabled: Boolean(onConnectSolanaWallet), ...(onConnectSolanaWallet ? { run: onConnectSolanaWallet } : {}) };
   } else if (!fromSolana && !address) {
-    action = { label: "Connect wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
+    action = { label: "Connect Wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
   } else if (busy) action = { label: BUSY_LABEL[busy](source.name), enabled: false };
   else if (amount === null || amount === 0n) action = { label: "Enter an amount", enabled: false };
   else if (!recipient) {
     action = { label: deposit ? "Enter your Injective address" : toSolana ? "Enter a Solana wallet address" : "Enter a valid recipient", enabled: false };
   } else if (recipientProblem) action = { label: "Check the recipient", enabled: false };
-  else if (toSolana && solRecipient === null) action = { label: "Checking the recipient", enabled: false };
+  else if (toSolana && solRecipient === null && !held) action = { label: "Checking the recipient", enabled: false };
   else if (balance !== null && amount > balance) action = { label: `Not enough USDC on ${source.name}`, enabled: false };
   else if (fromSolana && solBalance !== null && solBalance < solNeeded) action = { label: "Not enough SOL for the network fee", enabled: false };
   else if (quoteError) action = { label: quoteError, enabled: false };
-  else if (!fresh) action = { label: "Getting a quote", enabled: false };
-  else action = { label: deposit ? "Bridge to Injective" : `Bridge to ${destination.name}`, enabled: true, run: () => void submit() };
+  else if (!fresh && !held) action = { label: "Getting a quote", enabled: false };
+  else if (!fresh && held) {
+    // A re-check for the same route and amount (a new recipient, say) is in
+    // flight. The button keeps looking ready; a press waits for the answer and
+    // sends only if it gives at least what was on screen when pressed.
+    action = { label: readyLabel, enabled: true, run: () => setQueued(held.minReceived) };
+  } else action = { label: readyLabel, enabled: true, run: () => void submit() };
+
+  // A press made while re-checking: send once the fresh quote is in, unless
+  // it is worse than what the user saw, or the form stopped being sendable.
+  useEffect(() => {
+    if (queued === null) return;
+    if (!action.enabled) setQueued(null);
+    else if (fresh && quote) {
+      setQueued(null);
+      if (quote.minReceived >= queued) void submit();
+    }
+  });
+
+  // Short gas goes under the button's label, and only once the button could
+  // be pressed: while it reads "Not enough USDC" that is the one thing to fix.
+  // It warns rather than blocks, since a wallet with sponsored gas sends with none.
+  // Claim gas is not here: it is spent later, on the destination, and is said
+  // where the claim was chosen.
+  const gasLine = action.enabled && !busy ? gasNote : null;
 
   // After a flip each panel slides in from where the other one was.
   const swap = flips > 0;
-  const fee = quote && fresh ? quote.protocolFee + quote.forwardingFee + quote.bridgeFee : null;
+  const fee = shown ? shown.protocolFee + shown.forwardingFee + shown.bridgeFee : null;
+  // The gas drop is bought, not charged, but it still comes out of the amount,
+  // so the collapsed line counts it: "Fees up to 0.006" read as the whole cost
+  // while the user received 0.50 less.
+  const gasCost = shown && drop ? shown.gasDropFee : 0n;
+  const upTo = shown && shown.protocolFee > 0n ? " up to" : "";
+  /** Four decimals keep the line on one row; rounded UP, since it is a cap. */
+  const cap = (v: bigint) => formatUsdc(((v + 99n) / 100n) * 100n, 4);
+  const costLine =
+    fee === null
+      ? ""
+      : gasCost > 0n
+        ? fee === 0n
+          ? `Gas ${formatUsdc(gasCost)} USDC`
+          : // No "up to" here: with it the line wraps on a phone. The cap is
+            // still on the Circle fee row and in "You receive at least".
+            `Fees + gas ${cap(fee + gasCost)} USDC`
+        : fee === 0n
+          ? "No fees"
+          : `Fees${upTo} ${cap(fee)} USDC`;
+  const hasOptions = source.fastSource || (forwardable && selfClaimable) || (dropOffered && drop !== null);
+  const setupHint = shown?.recipientSetup === true;
+  const solHint = fromSolana;
+  const expandable = hasOptions || setupHint || solHint;
 
   return (
     <>
@@ -324,27 +389,22 @@ export function BridgeForm({
                 <span className="iub-muted">Balance</span> {formatUsdc(balance)}
                 {balance > 0n ? (
                   <button type="button" className="iub-max" onClick={() => setAmountText(formatUnits(balance, USDC_DECIMALS))}>
-                    MAX
+                    Max
                   </button>
                 ) : null}
               </span>
             ) : null
           }
         >
-          <div className="iub-amount">
-            <input
-              className="iub-amount-input"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="0.00"
-              aria-label="Amount of USDC"
-              value={amountText}
-              onChange={(e) => setAmountText(sanitizeAmountInput(e.target.value))}
-            />
-            <span className="iub-token">
-              <UsdcLogo size={22} /> USDC
-            </span>
-          </div>
+          <input
+            className="iub-amount-input"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            aria-label="Amount of USDC"
+            value={amountText}
+            onChange={(e) => setAmountText(sanitizeAmountInput(e.target.value))}
+          />
         </Side>
 
         <div className="iub-flip-row">
@@ -360,20 +420,20 @@ export function BridgeForm({
           chain={destination}
           locked={deposit}
           onPick={() => setPicking(true)}
+          // In the head row, opposite "To", so turning the gas drop on adds no height.
+          extra={wantDrop && drop ? <span className="iub-plus">+ {formatEther(drop.dropWei)} INJ for gas</span> : null}
         >
-          <div className="iub-amount iub-amount-out">
-            {loading && !fresh ? (
-              <span className="iub-skeleton iub-skeleton-amount" aria-label="Getting a quote" />
-            ) : (
-              <span key={fresh ? String(quote.minReceived) : "none"} className={fresh ? "iub-amount-value iub-fade" : "iub-amount-value iub-dim"}>
-                {fresh ? formatUsdc(quote.minReceived, 6) : "0.00"}
-              </span>
-            )}
-            <span className="iub-token">
-              <UsdcLogo size={22} /> USDC
+          {loading && !shown ? (
+            <span className="iub-skeleton iub-skeleton-amount" aria-label="Getting a quote" />
+          ) : (
+            // One element, updated in place: no key, no entrance animation and
+            // no pending style, so a re-check behind the scenes never shows here.
+            <span className={shown ? "iub-amount-value" : "iub-amount-value iub-dim"}>
+              {/* Beside the pill there is room for ~12 digits on a phone. Rounded
+                  down, so it is still a floor; the exact figure is in the details. */}
+              {shown ? formatUsdc(shown.minReceived, shown.minReceived >= 1_000_000_000n ? 2 : 4) : "0.00"}
             </span>
-          </div>
-          {wantDrop && drop ? <div className="iub-plus">+ {formatEther(drop.dropWei)} INJ for gas</div> : null}
+          )}
         </Side>
 
         {slowLane ? (
@@ -382,6 +442,54 @@ export function BridgeForm({
           </Note>
         ) : null}
 
+        <Recipient
+          deposit={deposit}
+          destination={destination}
+          fallback={defaultRecipient}
+          text={recipientText}
+          // Before the sending wallet is connected the button connects it, and
+          // connecting fills this in; asking for an address first is a step
+          // nobody needs.
+          hidden={!sender}
+          valid={recipient !== null && recipientProblem === null}
+          onChange={setRecipientText}
+          connect={
+            toSolana && !solAddress && onConnectSolanaWallet ? { label: "Connect Solana wallet", run: onConnectSolanaWallet } : null
+          }
+        />
+        {recipientProblem ? <Note tone="error">{recipientProblem}</Note> : null}
+
+        {!deposit && !destination.forwarding ? (
+          <Note>
+            Circle does not deliver on {destination.name}. Once approved, you claim it there yourself, which needs {destination.nativeSymbol} for gas.
+          </Note>
+        ) : null}
+
+        {/* Time and cost on one line; the choices that have a sensible default
+            (speed, delivery, gas drop) open under it rather than crowding the form. */}
+        <div className={details && expandable ? "iub-details iub-open" : "iub-details"}>
+          {expandable ? (
+            <button type="button" className="iub-details-toggle" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
+              <span className="iub-details-time">
+                <IconClock /> About {formatDuration(eta)}
+              </span>
+              <span className="iub-details-fee">{costLine || "Options"}</span>
+              <span className="iub-details-chevron">
+                <IconChevron />
+              </span>
+            </button>
+          ) : (
+            // Nothing to choose and no quote to break down: just the time, with
+            // no chevron promising a panel that would open empty.
+            <div className="iub-details-toggle">
+              <span className="iub-details-time">
+                <IconClock /> About {formatDuration(eta)}
+              </span>
+            </div>
+          )}
+          <div className="iub-details-body">
+            <div>
+              <div className="iub-options">
         {source.fastSource ? (
           <div className="iub-segment" role="radiogroup" aria-label="Speed" data-active={speed === "fast" ? "0" : "1"}>
             <span className="iub-segment-indicator" aria-hidden />
@@ -400,7 +508,10 @@ export function BridgeForm({
           </div>
         ) : null}
 
-        {forwardable ? (
+        {/* Only when there is a choice: an option that cannot be picked is not
+            shown greyed out, it is not shown. A Solana recipient without a USDC
+            account has to be delivered to, so the switch goes. */}
+        {forwardable && selfClaimable ? (
           <div className="iub-segment" role="radiogroup" aria-label="Delivery" data-active={selfClaim ? "1" : "0"}>
             <span className="iub-segment-indicator" aria-hidden />
             <button type="button" role="radio" aria-checked={!selfClaim} onClick={() => setClaimChoice(false)}>
@@ -409,27 +520,19 @@ export function BridgeForm({
               </span>
               <span className="iub-segment-sub">{deliveryFee !== null ? `${formatUsdc(deliveryFee, 6)} USDC, by Circle` : "By Circle, for a small fee"}</span>
             </button>
-            <button type="button" role="radio" aria-checked={selfClaim} disabled={!selfClaimable} onClick={() => setClaimChoice(true)}>
+            <button type="button" role="radio" aria-checked={selfClaim} onClick={() => setClaimChoice(true)}>
               <span className="iub-segment-title">
                 <IconWallet /> Claim it yourself
               </span>
               <span className="iub-segment-sub">
-                {!selfClaimable
-                  ? "Circle must open their USDC account"
-                  : toSolana
-                    ? `No fee, about ${formatAmount(claimSol, 9, 4)} SOL to claim`
-                    : claimCost !== null && destination.kind === "evm"
-                      ? `No fee, about ${formatGasAmount(claimCost)} ${destination.nativeSymbol} to claim`
-                      : `No fee, you pay ${destination.nativeSymbol} gas on ${destination.name}`}
+                {toSolana
+                  ? `No fee, about ${formatAmount(claimSol, 9, 4)} SOL to claim`
+                  : claimCost !== null && destination.kind === "evm"
+                    ? `No fee, about ${formatGasAmount(claimCost)} ${destination.nativeSymbol} to claim`
+                    : `No fee, you pay ${destination.nativeSymbol} gas on ${destination.name}`}
               </span>
             </button>
           </div>
-        ) : null}
-        {forwardable && selfClaim ? (
-          <Note>
-            Once Circle approves it, claim it on {destination.name} from the transfer page or Activity: one transaction
-            {toSolana ? " from any Solana wallet" : ` from this wallet, with ${destination.nativeSymbol} for gas`}. It waits for you until you do.
-          </Note>
         ) : null}
 
         {dropOffered && drop ? (
@@ -445,102 +548,37 @@ export function BridgeForm({
             <span className="iub-switch" aria-hidden />
           </button>
         ) : null}
-
-        <Recipient
-          deposit={deposit}
-          destination={destination}
-          fallback={defaultRecipient}
-          text={recipientText}
-          valid={recipient !== null && recipientProblem === null}
-          onChange={setRecipientText}
-          connect={
-            deposit && !address && onConnectWallet
-              ? { label: "Connect wallet", run: onConnectWallet }
-              : toSolana && !solAddress && onConnectSolanaWallet
-                ? { label: "Connect Solana wallet", run: onConnectSolanaWallet }
-                : null
-          }
-        />
-        {recipientProblem ? <Note tone="error">{recipientProblem}</Note> : null}
-
-        {!deposit && !destination.forwarding ? (
-          <Note>
-            Circle does not deliver on {destination.name}. Once approved, you claim it there yourself, which needs {destination.nativeSymbol} for gas.
-          </Note>
+        {/* No fee table: what arrives is in the To panel, the time and the
+            total cost are on the line above, and the chosen option says who
+            delivers. Only what is shown nowhere else gets a line. */}
+        {setupHint ? <p className="iub-options-hint">Circle opens a USDC account for the recipient; it is in the delivery fee.</p> : null}
+        {solHint ? (
+          <p className="iub-options-hint">
+            Sending from Solana also costs about {formatAmount(solNeeded, 9, 4)} SOL in network fees, most of it back after 5 days.
+          </p>
         ) : null}
-
-        {quote && fresh && fee !== null ? (
-          <div className={details ? "iub-details iub-open" : "iub-details"}>
-            <button type="button" className="iub-details-toggle" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
-              <span className="iub-details-time">
-                <IconClock /> About {formatDuration(eta)}
-              </span>
-              <span className="iub-details-fee">
-                {fee === 0n ? "No fees" : `${quote.protocolFee > 0n ? "Fees up to" : "Fees"} ${formatUsdc(fee, 6)} USDC`}
-              </span>
-              <span className="iub-details-chevron">
-                <IconChevron />
-              </span>
-            </button>
-            <div className="iub-details-body">
-              <div>
-                <dl className="iub-fees">
-                  <div>
-                    <dt>Circle fee</dt>
-                    <dd>{quote.protocolFee > 0n ? `Up to ${formatUsdc(quote.protocolFee, 6)} USDC` : "Free"}</dd>
-                  </div>
-                  <div>
-                    <dt>Delivery</dt>
-                    <dd>
-                      {quote.forwarded
-                        ? `${formatUsdc(quote.forwardingFee, 6)} USDC, by Circle`
-                        : deposit
-                          ? "Free, done for you"
-                          : "You claim it"}
-                    </dd>
-                  </div>
-                  {quote.recipientSetup ? (
-                    <div>
-                      <dt>USDC account</dt>
-                      <dd>Opened for the recipient, in the delivery fee</dd>
-                    </div>
-                  ) : null}
-                  {quote.gasDropFee > 0n && drop ? (
-                    <div>
-                      <dt>{formatEther(drop.dropWei)} INJ for gas</dt>
-                      <dd>{formatUsdc(quote.gasDropFee)} USDC</dd>
-                    </div>
-                  ) : null}
-                  {fromSolana ? (
-                    <div>
-                      <dt>Solana network fee</dt>
-                      <dd>About {formatAmount(solNeeded, 9, 4)} SOL, most of it back after 5 days</dd>
-                    </div>
-                  ) : null}
-                  <div className="iub-fees-total">
-                    <dt>You receive at least</dt>
-                    <dd>
-                      {formatUsdc(quote.minReceived, 6)} USDC{quote.gasDropFee > 0n && drop ? ` + ${formatEther(drop.dropWei)} INJ` : ""}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Time</dt>
-                    <dd>About {formatDuration(eta)}</dd>
-                  </div>
-                </dl>
               </div>
             </div>
           </div>
-        ) : null}
+        </div>
 
-        {gasNote && !busy ? <Note tone="warn">{gasNote}</Note> : null}
-        {claimGasNote && !busy ? <Note tone="warn">{claimGasNote}</Note> : null}
         {error ? <Note tone="error">{error}</Note> : null}
 
-        <button type="button" className={busy ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={!action.enabled} onClick={action.run}>
-          {busy || (loading && !fresh && amount) ? <Spinner /> : null}
-          {action.label}
+        <button
+          type="button"
+          className={[busy ? "iub-primary iub-primary-busy" : "iub-primary", gasLine ? "iub-primary-warn" : ""].join(" ").trim()}
+          disabled={!action.enabled}
+          onClick={action.run}
+        >
+          <span className="iub-primary-main">
+            {busy || queued !== null || (loading && !shown && amount) ? <Spinner /> : null}
+            {action.label}
+          </span>
+          {gasLine ? <span className="iub-primary-sub">{gasLine}</span> : null}
         </button>
+        {/* Claim gas is spent later, on the destination, so it is a note under
+            the button rather than on it; and only when it is actually short. */}
+        {claimGasNote && action.enabled && !busy ? <p className="iub-after-cta">{claimGasNote}</p> : null}
       </div>
 
       <ChainPicker
@@ -572,6 +610,11 @@ function Note({ tone, children }: { tone?: "warn" | "error"; children: ReactNode
   );
 }
 
+/**
+ * One panel per end: the amount, and beside it the asset pill. The token is
+ * always USDC, so the pill is really the chain; it reads "USDC on Base" the
+ * way a wallet would, and is the only chain control on the panel.
+ */
 function Side({
   label,
   chain,
@@ -585,29 +628,42 @@ function Side({
   chain: Chain;
   locked: boolean;
   onPick: () => void;
+  /** Right of the label: the balance, or what arrives besides the USDC. */
   extra?: ReactNode;
   className?: string | undefined;
   children: ReactNode;
 }) {
+  const pill = (
+    <>
+      <span className="iub-asset-logo">
+        <UsdcLogo size={30} />
+        <span className="iub-asset-badge">
+          <ChainLogo chain={chain.key} name={chain.name} size={16} />
+        </span>
+      </span>
+      <span className="iub-asset-text">
+        <strong>USDC</strong>
+        <span>{chain.name}</span>
+      </span>
+    </>
+  );
   return (
     <div className={className ? `iub-side ${className}` : "iub-side"}>
       <div className="iub-side-head">
         <span className="iub-label">{label}</span>
         {extra}
       </div>
-      {locked ? (
-        <div className="iub-chain iub-chain-locked">
-          <ChainLogo chain={chain.key} name={chain.name} size={26} />
-          <span>{chain.name}</span>
-        </div>
-      ) : (
-        <button type="button" className="iub-chain" onClick={onPick} aria-haspopup="dialog">
-          <ChainLogo chain={chain.key} name={chain.name} size={26} />
-          <span>{chain.name}</span>
-          <IconChevron />
-        </button>
-      )}
-      {children}
+      <div className="iub-amount">
+        {children}
+        {locked ? (
+          <div className="iub-asset iub-asset-locked">{pill}</div>
+        ) : (
+          <button type="button" className="iub-asset" onClick={onPick} aria-haspopup="dialog" aria-label={`USDC on ${chain.name}, change chain`}>
+            {pill}
+            <IconChevron />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -617,6 +673,7 @@ function Recipient({
   destination,
   fallback,
   text,
+  hidden,
   valid,
   onChange,
   connect,
@@ -626,52 +683,66 @@ function Recipient({
   /** The connected wallet that receives by default, if any. */
   fallback: string | null;
   text: string | null;
+  /** Nothing to show until the user has typed something. */
+  hidden: boolean;
   valid: boolean;
   onChange: (t: string | null) => void;
   connect: { label: string; run: () => void } | null;
 }) {
-  if (text === null && fallback) {
-    const shown = deposit ? toInjAddress(fallback as Address) : fallback;
-    return (
-      <div className="iub-recipient">
-        <IconWallet />
-        <span className="iub-muted">To your wallet on {destination.name}</span>
-        <span className="iub-mono" title={shown}>
-          {shortAddress(shown)}
-        </span>
-        <button type="button" className="iub-link" onClick={() => onChange("")}>
-          Change
-        </button>
-      </div>
-    );
-  }
+  if (hidden && text === null) return null;
+  // A well like From and To: "Send to" and its one action on top, the address
+  // or the field filling the row below. Both states share the frame, so going
+  // from one to the other never moves anything else on the form.
+  const editing = !(text === null && fallback);
   const value = text ?? "";
+  const action = !editing
+    ? { label: "Change", tint: false, run: () => onChange("") }
+    : fallback
+      ? { label: "Use my wallet", tint: true, run: () => onChange(null) }
+      : connect
+        ? { label: connect.label, tint: true, run: connect.run }
+        : null;
+  const shown = !editing && fallback ? (deposit ? toInjAddress(fallback as Address) : fallback) : null;
   return (
-    <div className="iub-recipient-edit">
-      <input
-        className={valid || value === "" ? "iub-input" : "iub-input iub-input-bad"}
-        placeholder={
-          deposit
-            ? "Your Injective address, inj1... or 0x..."
-            : destination.kind === "solana"
-              ? "Solana wallet address"
-              : `0x... address on ${destination.name}`
-        }
-        aria-label={`Recipient on ${destination.name}`}
-        value={value}
-        spellCheck={false}
-        autoComplete="off"
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {fallback ? (
-        <button type="button" className="iub-link" onClick={() => onChange(null)}>
-          Use my wallet
-        </button>
-      ) : connect ? (
-        <button type="button" className="iub-link" onClick={connect.run}>
-          {connect.label}
-        </button>
-      ) : null}
+    <div className={editing && !valid && value !== "" ? "iub-recipient iub-recipient-bad" : "iub-recipient"}>
+      <div className="iub-recipient-head">
+        <span className="iub-label">{shown ? "Send to your wallet" : "Send to"}</span>
+        {action ? (
+          <button type="button" className={action.tint ? "iub-action iub-action-tint" : "iub-action"} onClick={action.run}>
+            {action.label}
+          </button>
+        ) : null}
+      </div>
+      <div className="iub-recipient-row">
+        <ChainLogo chain={destination.key} name={destination.name} size={26} />
+        {shown ? (
+          <span className="iub-recipient-address" title={shown}>
+            {midAddress(shown)}
+          </span>
+        ) : (
+          <input
+            className="iub-recipient-input"
+            placeholder={
+              deposit
+                ? "Injective address, inj1... or 0x..."
+                : destination.kind === "solana"
+                  ? "Solana wallet address"
+                  : `0x... address on ${destination.name}`
+            }
+            aria-label={`Recipient on ${destination.name}`}
+            aria-invalid={!valid && value !== ""}
+            value={value}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
     </div>
   );
+}
+
+/** More of an address than shortAddress, for a row that has the room: the ends people check. */
+function midAddress(a: string): string {
+  return a.length > 24 ? `${a.slice(0, 12)}…${a.slice(-8)}` : a;
 }

@@ -1,36 +1,45 @@
 /*
  * injective-usdc-bridge widget. Every rule is scoped under .iub, and every
  * colour, radius, shadow and font is a --iub-* variable: a host restyles it by
- * setting those on .iub (or any ancestor). Defaults follow Choice v2.
+ * setting those on .iub (or any ancestor). Defaults are Choice v2's own
+ * tokens (choice_v2_frontend src/index.css), so the widget reads as part of
+ * the exchange: its card, its wells, its gold, its three text tiers.
  *
  * Resets use :where() so they weigh nothing and any class below wins without
  * !important.
  */
 .iub {
-  --iub-bg: #101116;
-  --iub-panel: #0c0d11;
-  --iub-raised: #16171c;
-  --iub-hover: #1d1e25;
-  --iub-border: #1f2027;
-  --iub-border-strong: #2c2d36;
-  --iub-text: #ececef;
-  --iub-muted: #9a9ca4;
-  --iub-dim: #686b75;
+  /* cardBgColor: the instrument plane. */
+  --iub-bg: #0f1013;
+  /* A well inside it: lighter than the card, no outline (InnerPanel). */
+  --iub-panel: rgba(255, 255, 255, 0.035);
+  /* A chip or control on a well (the token chip). */
+  --iub-raised: rgba(255, 255, 255, 0.07);
+  --iub-hover: rgba(255, 255, 255, 0.1);
+  --iub-border: rgba(255, 255, 255, 0.06);
+  --iub-border-strong: rgba(255, 255, 255, 0.1);
+  /* white / textMuted / textDim */
+  --iub-text: #ededf0;
+  --iub-muted: #9295a0;
+  --iub-dim: #757987;
   --iub-accent: #fdc70c;
-  --iub-accent-hover: #ffd43b;
+  --iub-accent-hover: #ffd94a;
   --iub-accent-soft: rgba(253, 199, 12, 0.12);
-  --iub-on-accent: #0a0b0d;
+  --iub-on-accent: #14110a;
   --iub-positive: #34d399;
   --iub-positive-soft: rgba(52, 211, 153, 0.12);
   --iub-negative: #fb7185;
   --iub-negative-soft: rgba(251, 113, 133, 0.1);
   --iub-warning: #fbbf24;
   --iub-warning-soft: rgba(251, 191, 36, 0.12);
-  --iub-overlay: rgba(4, 5, 7, 0.62);
-  --iub-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.55);
+  --iub-overlay: rgba(4, 4, 5, 0.75);
+  --iub-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 32px 64px -28px rgba(0, 0, 0, 0.8);
   --iub-logo-ring: rgba(255, 255, 255, 0.1);
-  --iub-radius: 22px;
-  --iub-radius-panel: 16px;
+  --iub-radius: 20px;
+  --iub-radius-panel: 14px;
   --iub-radius-control: 12px;
   --iub-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --iub-font: "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -41,10 +50,16 @@
   width: 100%;
   max-width: 448px;
   margin: 0 auto;
-  padding: 8px;
+  padding: 12px;
   overflow: hidden;
-  background: var(--iub-bg);
-  border: 1px solid var(--iub-border);
+  /* surface-hero: the exchange's swap panel. Warm light from the top edge, a
+     gold hairline along it, lifted by a long shadow rather than by colour. */
+  background:
+    radial-gradient(120% 50% at 50% -8%, rgba(253, 199, 12, 0.075), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 160px),
+    var(--iub-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(253, 199, 12, 0.2);
   border-radius: var(--iub-radius);
   box-shadow: var(--iub-shadow);
   color: var(--iub-text);
@@ -183,21 +198,25 @@
   position: relative;
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
-  margin: 4px 4px 8px;
-  padding: 4px;
-  border-radius: 14px;
-  background: var(--iub-panel);
-  border: 1px solid var(--iub-border);
+  height: 36px;
+  margin: 2px 2px 10px;
+  padding: 3px;
+  /* SegmentedControl: a pill track, the selection a lit pill inside it. */
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 .iub-tabs-indicator {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc(50% - 4px);
-  border-radius: 10px;
-  background: var(--iub-raised);
-  box-shadow: inset 0 0 0 1px var(--iub-border-strong);
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.45);
   transition: transform 0.32s var(--iub-ease);
 }
 .iub-tabs[data-active="1"] .iub-tabs-indicator {
@@ -210,10 +229,11 @@
   justify-content: center;
   gap: 6px;
   min-width: 96px;
-  padding: 7px 14px;
-  border-radius: 10px;
+  height: 100%;
+  padding: 0 14px;
+  border-radius: 999px;
   color: var(--iub-muted);
-  font-weight: 600;
+  font-weight: 500;
   transition: color 0.2s ease;
 }
 .iub-tabs button:hover,
@@ -228,7 +248,7 @@
   background: var(--iub-accent);
   color: var(--iub-on-accent);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 18px;
   text-align: center;
   animation: iub-pop 0.35s var(--iub-ease);
@@ -280,7 +300,7 @@ img.iub-logo {
   justify-content: center;
   background: var(--iub-hover);
   color: var(--iub-text);
-  font-weight: 700;
+  font-weight: 600;
 }
 .iub-pair {
   position: relative;
@@ -308,19 +328,15 @@ img.iub-logo {
   flex-direction: column;
   gap: 12px;
   padding: 14px 16px 16px;
+  /* InnerPanel: a well read through tone, never through a second outline. */
   background: var(--iub-panel);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
   border-radius: var(--iub-radius-panel);
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: border-color 0.2s ease;
 }
-.iub-side:hover {
-  border-color: var(--iub-border-strong);
-}
+.iub-side:hover,
 .iub-side:focus-within {
-  border-color: var(--iub-border-strong);
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.025);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 .iub-swap-up {
   animation: iub-swap-up 0.38s var(--iub-ease);
@@ -332,74 +348,44 @@ img.iub-logo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 22px;
+  /* Fixed, not a minimum: the balance, MAX and the gas-drop chip appear here
+     as a wallet connects or a toggle flips, and must never resize the panel. */
+  height: 22px;
 }
+/* text-note: the label a well opens with, sentence case, muted. */
 .iub-label {
   color: var(--iub-muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 14px;
+  font-weight: 500;
 }
 .iub-balance {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12.5px;
+  color: var(--iub-dim);
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+/* Gold is for the one action a screen exists for; Max is plain white text
+   with a hover, as on the exchange's amount field. */
 .iub-max {
-  margin-left: 4px;
-  padding: 2px 7px;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0 4px;
+  line-height: 20px;
   border-radius: 6px;
-  background: var(--iub-accent-soft);
-  color: var(--iub-accent);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  color: var(--iub-text);
+  font-size: 13px;
+  font-weight: 600;
   transition:
     background 0.15s ease,
     transform 0.15s ease;
 }
 .iub-max:hover {
-  background: rgba(253, 199, 12, 0.2);
+  background: rgba(255, 255, 255, 0.08);
 }
 .iub-max:active {
   transform: scale(0.94);
-}
-.iub-chain {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  align-self: flex-start;
-  height: 38px;
-  padding: 0 12px 0 6px;
-  border-radius: 19px;
-  background: var(--iub-raised);
-  border: 1px solid var(--iub-border);
-  font-weight: 600;
-  font-size: 14.5px;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.15s ease;
-}
-button.iub-chain svg {
-  color: var(--iub-muted);
-  transition: transform 0.2s ease;
-}
-button.iub-chain:hover {
-  background: var(--iub-hover);
-  border-color: var(--iub-border-strong);
-}
-button.iub-chain:hover svg {
-  transform: translateY(1px);
-}
-button.iub-chain:active {
-  transform: scale(0.97);
-}
-.iub-chain-locked {
-  padding-right: 14px;
-  cursor: default;
 }
 .iub-amount {
   display: flex;
@@ -411,10 +397,11 @@ button.iub-chain:active {
 .iub-amount-value {
   flex: 1;
   min-width: 0;
+  /* text-amount: weight 500 and display tracking, as the swap field sets it. */
   font-size: 30px;
   line-height: 40px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 500;
+  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
 .iub-amount-input {
@@ -436,21 +423,79 @@ button.iub-chain:active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.2s ease;
 }
-.iub-token {
+/* The asset pill: "USDC / Base", the chain as a badge on the coin. */
+.iub-asset {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   flex: none;
-  height: 34px;
-  padding: 0 12px 0 6px;
-  border-radius: 17px;
+  max-width: 58%;
+  height: 46px;
+  padding: 0 10px 0 7px;
+  border-radius: 23px;
   background: var(--iub-raised);
-  font-weight: 600;
+  border: 1px solid transparent;
+  text-align: left;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+button.iub-asset > svg {
+  flex: none;
+  color: var(--iub-muted);
+}
+button.iub-asset:hover {
+  background: var(--iub-hover);
+  border-color: var(--iub-border-strong);
+}
+button.iub-asset:active {
+  transform: scale(0.97);
+}
+.iub-asset-locked {
+  padding-right: 14px;
+  cursor: default;
+}
+.iub-asset-logo {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+.iub-asset-logo > .iub-logo {
+  display: block;
+}
+.iub-asset-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  display: flex;
+  border-radius: 50%;
+  /* Solid: the chip is translucent, and a translucent ring shows the coin through it. */
+  box-shadow: 0 0 0 2px #1d1e23;
+}
+.iub-asset-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.iub-asset-text strong {
+  font-size: 14.5px;
+}
+.iub-asset-text span {
+  overflow: hidden;
+  color: var(--iub-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .iub-plus {
-  align-self: flex-start;
-  padding: 3px 9px;
+  height: 20px;
+  padding: 0 9px;
+  line-height: 20px;
   border-radius: 999px;
   background: var(--iub-positive-soft);
   color: var(--iub-positive);
@@ -469,21 +514,22 @@ button.iub-chain:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin-top: -24px;
+  width: 48px;
+  height: 48px;
+  margin-top: -28px;
   border-radius: 14px;
   border: 4px solid var(--iub-bg);
-  background: var(--iub-raised);
-  color: var(--iub-muted);
+  /* The swap panel's flip: a solid tile cut out of the card by its ring. */
+  background: #18191e;
+  color: #b3b5bd;
   transition:
     transform 0.45s var(--iub-ease),
     color 0.15s ease,
     background 0.15s ease;
 }
 .iub-flip:hover {
-  color: var(--iub-accent);
-  background: var(--iub-hover);
+  color: var(--iub-text);
+  background: #1c1d23;
 }
 
 /* ── Skeletons ─────────────────────────────────────────────────────────── */
@@ -508,7 +554,7 @@ button.iub-chain:active {
   padding: 4px;
   border-radius: var(--iub-radius-panel);
   background: var(--iub-panel);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
 }
 .iub-segment-indicator {
   position: absolute;
@@ -537,16 +583,12 @@ button.iub-chain:active {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--iub-muted);
   transition: color 0.2s ease;
 }
 .iub-segment button[aria-checked="true"] .iub-segment-title {
   color: var(--iub-text);
-}
-.iub-segment button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 .iub-segment button[aria-checked="true"] .iub-segment-title svg {
   color: var(--iub-accent);
@@ -565,7 +607,7 @@ button.iub-chain:active {
   width: 100%;
   padding: 12px 14px;
   border-radius: var(--iub-radius-panel);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
   background: var(--iub-panel);
   text-align: left;
   transition:
@@ -593,81 +635,140 @@ button.iub-chain:active {
 .iub-switch {
   position: relative;
   flex: none;
-  width: 40px;
+  /* The exchange's Toggle: 44 x 24, a white knob, gold when on. */
+  width: 44px;
   height: 24px;
   border-radius: 12px;
-  background: var(--iub-hover);
-  box-shadow: inset 0 0 0 1px var(--iub-border-strong);
+  background: rgba(255, 255, 255, 0.12);
   transition: background 0.25s ease;
 }
 .iub-switch::after {
   content: "";
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--iub-muted);
-  transition:
-    transform 0.3s var(--iub-ease),
-    background 0.2s ease;
+  background: #fff;
+  transition: transform 0.3s var(--iub-ease);
 }
 .iub-toggle-row[aria-checked="true"] .iub-switch {
   background: var(--iub-accent);
-  box-shadow: none;
 }
 .iub-toggle-row[aria-checked="true"] .iub-switch::after {
-  transform: translateX(16px);
-  background: var(--iub-on-accent);
+  transform: translateX(20px);
 }
 
 /* ── Recipient ─────────────────────────────────────────────────────────── */
-.iub-recipient,
-.iub-recipient-edit {
+/* A well like From and To, so where the money goes reads as part of the
+   transfer rather than a footnote under it. Same frame in both states. */
+.iub-recipient {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  background: var(--iub-panel);
+  border: 1px solid transparent;
+  border-radius: var(--iub-radius-panel);
+  transition: border-color 0.2s ease;
+}
+.iub-recipient:hover,
+.iub-recipient:focus-within {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.iub-recipient-bad,
+.iub-recipient-bad:hover,
+.iub-recipient-bad:focus-within {
+  border-color: rgba(251, 113, 133, 0.5);
+}
+.iub-recipient-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 2px 6px;
-  font-size: 13px;
-  animation: iub-fade 0.2s ease;
+  height: 28px;
 }
-.iub-recipient > svg {
-  flex: none;
-  color: var(--iub-dim);
+.iub-recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
 }
-.iub-recipient .iub-muted {
+.iub-recipient-address,
+.iub-recipient-input {
   flex: 1;
   min-width: 0;
+  color: var(--iub-text);
+  font-family: var(--iub-mono);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.iub-recipient-address {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.iub-input {
-  flex: 1;
-  min-width: 0;
-  height: 42px;
+.iub-recipient-input {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.iub-recipient-input::placeholder {
+  color: var(--iub-dim);
+  font-family: var(--iub-font);
+}
+/* The well shows focus; no box around the bare field. */
+.iub .iub-recipient-input:focus-visible {
+  outline: none;
+}
+
+/* ── Pills: a real button for a secondary action ──────────────────────── */
+/* The exchange's secondary button: a lit glass pill. */
+.iub-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 28px;
   padding: 0 12px;
-  border-radius: var(--iub-radius-control);
-  border: 1px solid var(--iub-border);
-  background: var(--iub-panel);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   color: var(--iub-text);
-  font: inherit;
   font-size: 13px;
-  transition: border-color 0.15s ease;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
 }
-.iub-input:focus {
-  border-color: var(--iub-border-strong);
+.iub-action:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.06));
 }
-.iub-input-bad,
-.iub-input-bad:focus {
-  border-color: var(--iub-negative);
+.iub-action:active {
+  transform: translateY(1px);
+}
+/* The exchange's tint button: gold at low strength, for the step that unblocks
+   the form (connect a wallet, use mine), never competing with the CTA. */
+.iub-action-tint {
+  border-color: transparent;
+  background: rgba(253, 199, 12, 0.12);
+  box-shadow: none;
+  color: var(--iub-accent);
+}
+.iub-action-tint:hover {
+  border-color: transparent;
+  background: rgba(253, 199, 12, 0.2);
 }
 
 /* ── Fee details: summary line, breakdown on demand ───────────────────── */
 .iub-details {
   border-radius: var(--iub-radius-panel);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
   background: var(--iub-panel);
   animation: iub-in 0.25s var(--iub-ease);
 }
@@ -721,33 +822,35 @@ button.iub-chain:active {
   visibility: visible;
   transition-delay: 0s;
 }
-.iub-fees {
-  margin: 0;
-  padding: 2px 14px 12px;
+/* Speed, delivery and gas drop, inside the open details panel. */
+.iub-options {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  font-size: 13px;
+  gap: 8px;
+  padding: 2px 8px 10px;
 }
-.iub-fees div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+.iub-options:empty {
+  display: none;
 }
-.iub-fees dt {
-  color: var(--iub-muted);
+/* Already inside a panel: sit a step darker instead of drawing a second card. */
+.iub-options .iub-segment,
+.iub-options .iub-toggle-row {
+  background: var(--iub-bg);
 }
-.iub-fees dd {
-  margin: 0;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+/* A short warning under the main button, about something after it. */
+.iub-after-cta {
+  margin: -2px 0 0;
+  color: var(--iub-warning);
+  font-size: 12.5px;
+  line-height: 18px;
+  text-align: center;
 }
-.iub-fees-total {
-  padding-top: 7px;
-  border-top: 1px dashed var(--iub-border-strong);
-}
-.iub-fees-total dd {
-  font-weight: 700;
+/* One quiet line under a choice, saying what it means. */
+.iub-options-hint {
+  margin: -2px 6px 2px;
+  color: var(--iub-dim);
+  font-size: 12.5px;
+  line-height: 18px;
 }
 
 /* ── Notes ─────────────────────────────────────────────────────────────── */
@@ -780,33 +883,56 @@ button.iub-chain:active {
 .iub-primary {
   position: relative;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 1px;
   width: 100%;
-  height: 52px;
-  margin-top: 2px;
+  /* btn-gold at the exchange's lg size: 56 tall, 18 radius, 17px. */
+  min-height: 56px;
+  padding: 6px 14px;
+  margin-top: 4px;
   overflow: hidden;
-  border-radius: var(--iub-radius-panel);
-  background: var(--iub-accent);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffd94a, #f2b705);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 8px 24px -10px rgba(253, 199, 12, 0.55);
   color: var(--iub-on-accent);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   transition:
-    background 0.2s ease,
-    color 0.2s ease,
-    transform 0.12s ease,
-    box-shadow 0.2s ease;
+    filter 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.iub-primary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* A short warning under the label (no gas yet). The button still works: a
+   wallet with sponsored gas sends without any. */
+.iub-primary-sub {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.72;
 }
 .iub-primary:hover:not(:disabled) {
-  background: var(--iub-accent-hover);
-  box-shadow: 0 8px 24px -8px rgba(253, 199, 12, 0.45);
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 10px 32px -10px rgba(253, 199, 12, 0.7);
 }
 .iub-primary:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: translateY(1px);
 }
 .iub-primary:disabled {
-  background: var(--iub-raised);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
   color: var(--iub-dim);
 }
 /* Waiting on the wallet: the button keeps its colour and breathes. */
@@ -830,7 +956,7 @@ button.iub-chain:active {
   border-radius: var(--iub-radius-control);
   background: var(--iub-raised);
   border: 1px solid var(--iub-border-strong);
-  font-weight: 700;
+  font-weight: 600;
   transition:
     background 0.15s ease,
     transform 0.12s ease;
@@ -899,6 +1025,11 @@ button.iub-chain:active {
   right: 0;
   bottom: 0;
   top: 44px;
+  /* Never taller than the screen: on a phone the widget is, and a sheet the
+     widget's height would put half its list below the fold. With top and
+     bottom both set, the cap keeps it anchored to the top. */
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
   display: flex;
   flex-direction: column;
   padding: 8px 8px 0;
@@ -938,7 +1069,7 @@ button.iub-chain:active {
   margin: 0 4px 6px;
   padding: 0 14px;
   border-radius: var(--iub-radius-control);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
   background: var(--iub-panel);
   color: var(--iub-dim);
   transition: border-color 0.15s ease;
@@ -961,6 +1092,35 @@ button.iub-chain:active {
 }
 .iub-search input::placeholder {
   color: var(--iub-dim);
+}
+.iub-quick {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin: 0 4px 8px;
+}
+.iub-quick button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1.25;
+  border-radius: 12px;
+  background: var(--iub-panel);
+  border: 1px solid transparent;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+.iub-quick button:hover {
+  background: var(--iub-hover);
+  border-color: var(--iub-border-strong);
+}
+.iub-quick button:active {
+  transform: scale(0.95);
+}
+.iub-quick button[aria-current="true"] {
+  border-color: var(--iub-accent);
 }
 .iub-picker-empty {
   padding: 32px 16px;
@@ -1050,7 +1210,7 @@ button.iub-chain:active {
   background: var(--iub-positive-soft);
   color: var(--iub-positive);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .iub-chip svg {
   width: 12px;
@@ -1083,7 +1243,7 @@ button.iub-chain:active {
   padding: 16px;
   border-radius: var(--iub-radius-panel);
   background: var(--iub-panel);
-  border: 1px solid var(--iub-border);
+  border: 1px solid transparent;
 }
 .iub-card-done {
   border-color: rgba(52, 211, 153, 0.22);
@@ -1124,7 +1284,7 @@ button.iub-chain:active {
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 .iub-pill svg {
@@ -1246,7 +1406,7 @@ button.iub-chain:active {
   box-shadow: inset 0 0 0 1px var(--iub-border-strong);
   color: var(--iub-dim);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .iub-step-dot svg {
   width: 14px;
@@ -1554,6 +1714,15 @@ button.iub-chain:active {
   }
   .iub-activity-go {
     display: none;
+  }
+}
+
+/* iOS zooms the page into any focused field under 16px and does not zoom
+   back out. Touch screens get 16px; a fine pointer keeps the denser size. */
+@media (pointer: coarse) {
+  .iub-recipient-input,
+  .iub-search input {
+    font-size: 16px;
   }
 }
 

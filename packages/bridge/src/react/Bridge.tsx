@@ -5,10 +5,14 @@ import { useTransferAlerts } from "./alerts.js";
 import { BridgeForm } from "./BridgeForm.js";
 import { useActivity, useEnv } from "./hooks.js";
 import { progressOf } from "./progress.js";
+import type { TransferView } from "./api.js";
 import { TransferTracker } from "./TransferStatus.js";
 import type { BridgeProps } from "./types.js";
 
-type View = { name: "form" } | { name: "activity" } | { name: "track"; domain: number; txHash: string; from: "form" | "activity" };
+type View =
+  | { name: "form" }
+  | { name: "activity" }
+  | { name: "track"; domain: number; txHash: string; from: "form" | "activity"; known?: TransferView[] | undefined };
 
 /**
  * USDC to and from Injective over Circle CCTP. Drop it into any React app and
@@ -69,7 +73,7 @@ export function Bridge(props: BridgeProps) {
             items={activity.items}
             loading={activity.loading}
             error={activity.error}
-            onOpen={(domain, txHash) => setView({ name: "track", domain, txHash, from: "activity" })}
+            onOpen={(domain, txHash, known) => setView({ name: "track", domain, txHash, from: "activity", known })}
             onStart={() => setView({ name: "form" })}
             onConnectWallet={props.onConnectWallet}
             solanaWallet={props.solanaWallet ?? null}
@@ -89,6 +93,14 @@ export function Bridge(props: BridgeProps) {
             onConnectWallet={props.onConnectWallet}
             solanaWallet={props.solanaWallet ?? null}
             onConnectSolanaWallet={props.onConnectSolanaWallet}
+            // What Activity already knows about it, so a delivered transfer
+            // opens as delivered instead of passing through a placeholder.
+            known={
+              view.known ??
+              activity.items.flatMap((it) =>
+                it.view && it.view.source.domain === view.domain && it.view.source.txHash.toLowerCase() === view.txHash.toLowerCase() ? [it.view] : [],
+              )
+            }
             onBack={() => setView(view.from === "form" ? { name: "form" } : { name: "activity" })}
           />
         </div>

@@ -8,6 +8,9 @@ import { formatDuration, formatUsdc } from "./format.js";
 import { IconBolt, IconCheck, IconSearch } from "./icons.js";
 import { Sheet } from "./Sheet.js";
 
+/** Tiles in the one-tap row above the list: two rows of five. */
+const QUICK = 10;
+
 /** Chains holding the wallet's USDC first, most first; the rest keep the registry's order. */
 export function sortByBalance(chains: readonly Chain[], held: (c: Chain) => bigint): Chain[] {
   const order = new Map(chains.map((c, i) => [c.key, i]));
@@ -88,6 +91,17 @@ export function ChainPicker({
             }}
           />
         </label>
+        {q ? null : (
+          // The usual picks one tap away, the way wallet pickers do it; the
+          // full list with times and balances stays below.
+          <div className="iub-quick" role="group" aria-label="Popular chains">
+            {shown.slice(0, QUICK).map((c) => (
+              <button key={c.key} type="button" aria-current={c.key === selected} title={c.name} aria-label={c.name} onClick={() => onPick(c.key)}>
+                <ChainLogo chain={c.key} name={c.name} size={30} />
+              </button>
+            ))}
+          </div>
+        )}
         {shown.length === 0 ? (
           <div className="iub-picker-empty">No chain matches "{query.trim()}"</div>
         ) : (

@@ -134,7 +134,16 @@ export function StatusPage({ apiUrl }: { apiUrl: string }) {
   const network: Network = health?.network ?? "mainnet";
   const nameOf = (key: string) => chainByKey(network, key)?.name ?? key;
   const s = summary(health, error, nameOf);
-  const inFlight = health ? Object.entries(health.counts).reduce((n, [phase, c]) => (phase === "delivered" ? n : n + c), 0) : null;
+  // In flight is a burn Circle has yet to approve (the per-chain column) plus
+  // one it has approved that is not minted yet. Expired and not-found
+  // transfers are not moving, so they are not counted.
+  const attesting = health?.counts.attesting ?? 0;
+  const ready = health?.counts.ready ?? 0;
+  const inFlight = health ? attesting + ready : null;
+  const inFlightSub =
+    inFlight === null || inFlight === 0
+      ? "nothing waiting right now"
+      : [attesting ? `${attesting} with Circle` : null, ready ? `${ready} approved, awaiting mint` : null].filter(Boolean).join(", ");
 
   return (
     <div className="status">
@@ -151,7 +160,7 @@ export function StatusPage({ apiUrl }: { apiUrl: string }) {
 
       <section className="status-stats">
         <Stat label="Delivered" value={health ? (health.counts.delivered ?? 0).toLocaleString() : null} sub="transfers tracked to the end" />
-        <Stat label="In flight" value={inFlight === null ? null : inFlight.toLocaleString()} sub="waiting on Circle or delivery" />
+        <Stat label="In flight" value={inFlight === null ? null : inFlight.toLocaleString()} sub={inFlightSub} />
         <Stat
           label="Auto-delivery"
           value={health ? (health.mode === "relay" ? "On" : "Watching only") : null}
@@ -187,7 +196,7 @@ export function StatusPage({ apiUrl }: { apiUrl: string }) {
             <span role="columnheader">Chain</span>
             <span role="columnheader">Status</span>
             <span role="columnheader">Synced</span>
-            <span role="columnheader">In flight</span>
+            <span role="columnheader">With Circle</span>
             <span role="columnheader">Last approval</span>
           </div>
           {health
@@ -209,7 +218,7 @@ export function StatusPage({ apiUrl }: { apiUrl: string }) {
                       {ago(l.indexerUpdatedAt, now) ?? <span className="status-muted">Not yet</span>}
                       {behind !== null && behind > BEHIND_WORTH_SHOWING ? <span className="status-sub">{behind.toLocaleString()} blocks behind</span> : null}
                     </span>
-                    <span role="cell" data-label="In flight">
+                    <span role="cell" data-label="With Circle">
                       {l.waiting === 0 ? (
                         <span className="status-muted">None</span>
                       ) : (

@@ -40,7 +40,12 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
     // throw the keyboard over the list.
     const fine = typeof window.matchMedia === "function" && window.matchMedia("(pointer: fine)").matches;
     const first = fine ? el?.querySelector<HTMLElement>("[data-autofocus]") : null;
-    (first ?? el)?.focus();
+    (first ?? el)?.focus({ preventScroll: true });
+    // The widget can be taller than a phone's screen, so the sheet may open
+    // partly below the fold. Its height is capped to the viewport in CSS;
+    // bring all of it into view.
+    const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el?.scrollIntoView?.({ block: "nearest", behavior: still ? "auto" : "smooth" });
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

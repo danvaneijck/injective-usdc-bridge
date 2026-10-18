@@ -32,7 +32,7 @@ export function Activity({
   items: ActivityItem[];
   loading: boolean;
   error: string | null;
-  onOpen: (domain: number, txHash: string) => void;
+  onOpen: (domain: number, txHash: string, known?: TransferView[]) => void;
   onStart: () => void;
   onConnectWallet?: (() => void) | undefined;
   solanaWallet?: SolanaWallet | null | undefined;
@@ -124,11 +124,11 @@ export function Activity({
   );
 }
 
-function ViewRow({ view: v, index, now, onOpen }: { view: TransferView; index: number; now: number; onOpen: (domain: number, txHash: string) => void }) {
+function ViewRow({ view: v, index, now, onOpen }: { view: TransferView; index: number; now: number; onOpen: (domain: number, txHash: string, known?: TransferView[]) => void }) {
   const p = progressOf(v, now);
   return (
     <li style={{ "--i": Math.min(index, 10) } as CSSProperties}>
-      <button type="button" onClick={() => onOpen(v.source.domain, v.source.txHash)}>
+      <button type="button" onClick={() => onOpen(v.source.domain, v.source.txHash, [v])}>
         <ChainPair from={v.source} to={v.destination} size={28} />
         <span className="iub-activity-main">
           <strong>{formatAmount(BigInt(v.amount), USDC_DECIMALS, 2)} USDC</strong>
@@ -151,7 +151,7 @@ function ViewRow({ view: v, index, now, onOpen }: { view: TransferView; index: n
  * Find a transfer without a wallet: a transaction hash opens it (whichever
  * chain sent it), an address lists its transfers.
  */
-function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number, txHash: string) => void; onAddress: (address: string) => void }) {
+function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number, txHash: string, known?: TransferView[]) => void; onAddress: (address: string) => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,10 +170,11 @@ function Finder({ env, onOpen, onAddress }: { env: Env; onOpen: (domain: number,
     }
     setBusy(true);
     try {
-      const first = (await env.api.transfersByTx(q.tx))[0];
+      const found = await env.api.transfersByTx(q.tx);
+      const first = found[0];
       if (first) {
         setText("");
-        onOpen(first.source.domain, first.source.txHash);
+        onOpen(first.source.domain, first.source.txHash, found.filter((v) => v.source.domain === first.source.domain));
       } else {
         setError("No transfer to or from Injective in that transaction. If it was sent moments ago, try again in a minute.");
       }
@@ -237,7 +238,7 @@ function LookedUp({
   address: string;
   now: number;
   finder: ReactNode;
-  onOpen: (domain: number, txHash: string) => void;
+  onOpen: (domain: number, txHash: string, known?: TransferView[]) => void;
   onClear: () => void;
 }) {
   const { data, error } = usePoll(`lookup:${address}`, () => env.api.transfers(address), 15_000);

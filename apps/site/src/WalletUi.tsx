@@ -66,9 +66,9 @@ export function WalletButtons({ evm, solana, onOpen }: { evm: WalletState; solan
           onDisconnect={evm.disconnect}
         />
       ) : (
-        <button type="button" className="site-connect" aria-label="Connect wallet" onClick={() => onOpen("evm")}>
+        <button type="button" className="site-connect" aria-label="Connect Wallet" onClick={() => onOpen("evm")}>
           <span>
-            Connect<span className="site-connect-more"> wallet</span>
+            Connect<span className="site-connect-more"> Wallet</span>
           </span>
         </button>
       )}
