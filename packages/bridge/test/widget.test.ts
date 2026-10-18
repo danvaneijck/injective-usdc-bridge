@@ -5,7 +5,7 @@ import { sortByBalance } from "../src/react/ChainPicker.js";
 import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, timeAgo } from "../src/react/format.js";
 import { richestChain } from "../src/react/hooks.js";
 import { parseLookup } from "../src/react/lookup.js";
-import { formatGasAmount, gasNeed, gasWarning } from "../src/react/gas.js";
+import { formatGasAmount, gasNeed, gasShort } from "../src/react/gas.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
@@ -123,22 +123,16 @@ describe("durations and gas", () => {
   it("warns before signing when the source chain's gas is missing or short", () => {
     const need = gasNeed(1_180_000_000n); // Injective's pinned fee
     expect(formatGasAmount(need)).toBe("0.00085");
-    expect(gasWarning({ balance: 0n, need }, "INJ", "Injective")).toBe(
-      "This wallet has no INJ on Injective to pay for gas. Sending needs about 0.00085 INJ; add some first.",
-    );
-    expect(gasWarning({ balance: need / 2n, need }, "ETH", "Base")).toMatch(/^This wallet may not have enough ETH on Base for gas: it has 0.00042/);
-    expect(gasWarning({ balance: need, need }, "ETH", "Base")).toBeNull();
-    expect(gasWarning(null, "ETH", "Base")).toBeNull();
+    expect(gasShort({ balance: 0n, need }, "INJ", "Injective")).toBe("No INJ on Injective for gas (needs ~0.00085)");
+    expect(gasShort({ balance: need / 2n, need }, "ETH", "Base")).toBe("Low ETH on Base for gas (needs ~0.00085)");
+    expect(gasShort({ balance: need, need }, "ETH", "Base")).toBeNull();
+    expect(gasShort(null, "ETH", "Base")).toBeNull();
     expect(formatGasAmount(1_920_000_000_000n)).toBe("0.0000019");
   });
 
   it("words a claim's gas, in SOL's 9 decimals on Solana", () => {
-    expect(gasWarning({ balance: 0n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe(
-      "This wallet has no SOL on Solana to pay for gas. Claiming needs about 0.001 SOL; add some first.",
-    );
-    expect(gasWarning({ balance: 400_000n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe(
-      "This wallet may not have enough SOL on Solana for gas: it has 0.0004, claiming needs about 0.001 SOL.",
-    );
+    expect(gasShort({ balance: 0n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe("No SOL on Solana to claim with (needs ~0.001)");
+    expect(gasShort({ balance: 400_000n, need: 1_000_000n }, "SOL", "Solana", "Claiming", 9)).toBe("Low SOL on Solana to claim with (needs ~0.001)");
   });
 });
 

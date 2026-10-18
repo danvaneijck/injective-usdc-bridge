@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Eip1193Provider } from "injective-usdc-bridge/react";
+import { type Eip1193Provider, showToast } from "injective-usdc-bridge/react";
 import { type WcSession, WC_PROJECT_ID, abortWalletConnect, connectWalletConnect, restoreWalletConnect } from "./walletConnect";
 
 /**
@@ -75,7 +75,6 @@ export interface WalletState {
   address: string | null;
   connect(w: FoundWallet): Promise<void>;
   disconnect(): void;
-  error: string | null;
   /** Null when no WalletConnect project id is configured. */
   walletConnect: {
     connect(): Promise<void>;
@@ -91,7 +90,6 @@ export function useWallet(): WalletState {
   const wallets = useDiscovery();
   const [active, setActive] = useState<FoundWallet | null>(null);
   const [address, setAddress] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [wcUri, setWcUri] = useState<string | null>(null);
   const wc = useRef<{ session: WcSession; stop: () => void } | null>(null);
   const wcCancelled = useRef(false);
@@ -119,12 +117,11 @@ export function useWallet(): WalletState {
   }, [adopt]);
 
   const connectWc = useCallback(async () => {
-    setError(null);
     wcCancelled.current = false;
     try {
       adopt(await connectWalletConnect(setWcUri));
     } catch (e) {
-      if (!wcCancelled.current) setError(friendly(e));
+      if (!wcCancelled.current) showToast(friendly(e));
     } finally {
       setWcUri(null);
     }
@@ -168,7 +165,6 @@ export function useWallet(): WalletState {
   }, [active]);
 
   const connect = useCallback(async (w: FoundWallet) => {
-    setError(null);
     try {
       const accounts = (await w.provider.request({ method: "eth_requestAccounts" })) as string[];
       if (!accounts[0]) throw new Error("The wallet returned no account");
@@ -176,7 +172,7 @@ export function useWallet(): WalletState {
       setAddress(accounts[0]);
       remember(w.info.rdns);
     } catch (e) {
-      setError(friendly(e));
+      showToast(friendly(e));
     }
   }, []);
 
@@ -197,7 +193,6 @@ export function useWallet(): WalletState {
     address,
     connect,
     disconnect,
-    error,
     walletConnect: WC_PROJECT_ID ? { connect: connectWc, cancel: cancelWc, uri: wcUri } : null,
   };
 }

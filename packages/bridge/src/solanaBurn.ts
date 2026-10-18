@@ -329,6 +329,45 @@ export function serializeTransaction(message: CompiledMessage, signatures: Map<s
   return out;
 }
 
+function readShortVec(bytes: Uint8Array, at: number): { value: number; next: number } {
+  let value = 0;
+  let shift = 0;
+  let i = at;
+  for (;;) {
+    const b = bytes[i++]!;
+    value |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) return { value, next: i };
+    shift += 7;
+  }
+}
+
+/**
+ * Adds `key`'s signature to a wire transaction, over the message exactly as it
+ * stands. For a second signer that must sign AFTER the wallet: Phantom (and
+ * others) may rewrite a transaction before signing it, which voids any
+ * signature already on it, and then fails with nothing more than
+ * "Unexpected error". Works on legacy and v0 messages.
+ */
+export function cosignTransaction(wire: Uint8Array, key: Uint8Array): Uint8Array {
+  const count = readShortVec(wire, 0);
+  const sigStart = count.next;
+  const messageStart = sigStart + 64 * count.value;
+  const message = wire.slice(messageStart);
+  // v0 messages open with 0x80 | version; legacy ones with the header.
+  const headerAt = (message[0]! & 0x80) !== 0 ? 1 : 0;
+  const keys = readShortVec(message, headerAt + 3);
+  const pubkey = ed25519.getPublicKey(key);
+  for (let i = 0; i < count.value && i < keys.value; i++) {
+    const at = keys.next + 32 * i;
+    if (message.slice(at, at + 32).every((b, j) => b === pubkey[j])) {
+      const out = wire.slice();
+      out.set(ed25519.sign(message, key), sigStart + 64 * i);
+      return out;
+    }
+  }
+  throw new Error("The wallet returned a transaction without the expected signer");
+}
+
 /** A transaction's id: its first (fee payer's) signature. */
 export function transactionSignature(wire: Uint8Array): string {
   const sig = wire.slice(1, 65);
@@ -398,6 +437,10 @@ export async function prepareSolanaTransaction(p: {
 export interface SolanaBurnPlan {
   /** Signed by the one-off event account; the owner's signature goes in next. */
   transaction: Uint8Array;
+  /** The same transaction with no signatures, for a wallet that must sign first. */
+  unsigned: Uint8Array;
+  /** Adds the event account's signature to what the wallet returns. */
+  cosign: (walletSigned: Uint8Array) => Uint8Array;
   eventAccount: string;
   lastValidBlockHeight: number;
   /** Fees plus the event account's rent, which the owner pays (reclaimable later). */
@@ -483,6 +526,8 @@ export async function buildSolanaBurn(opts: BuildSolanaBurnOptions): Promise<Sol
 
   return {
     transaction,
+    unsigned: serializeTransaction(message, new Map()),
+    cosign: (walletSigned) => cosignTransaction(walletSigned, eventKey),
     eventAccount,
     lastValidBlockHeight: prepared.lastValidBlockHeight,
     costLamports: prepared.feeLamports + BigInt(rent),

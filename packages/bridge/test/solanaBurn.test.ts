@@ -33,6 +33,7 @@ import {
   buildSolanaBurn,
   compileLegacyMessage,
   computeBudgetInstructions,
+  cosignTransaction,
   decodeSolanaBurn,
   depositForBurnInstruction,
   priorityMicroLamports,
@@ -312,5 +313,64 @@ describe("buildSolanaBurn", () => {
     await expect(
       buildSolanaBurn({ route: { source: solana, destination: inj }, quote, owner, recipient: EVM_RECIPIENT, fetchImpl }),
     ).rejects.toThrow(new SolanaSimulationError({}, ["insufficient funds"]).message);
+  });
+});
+
+describe("cosignTransaction", () => {
+  // The wallet signs first, then the event account: Phantom rewrites a
+  // transaction before signing it, voiding any signature already on it.
+  const owner = Keypair.generate();
+  const eventKey = ed25519.utils.randomPrivateKey();
+  const eventAccount = base58.encode(ed25519.getPublicKey(eventKey));
+  const blockhash = base58.encode(new Uint8Array(32).fill(7));
+  const burn = depositForBurnInstruction({
+    owner: owner.publicKey.toBase58(),
+    mint: USDC,
+    messageSentEventData: eventAccount,
+    args: { amount: 5_000_000n, destinationDomain: 29, mintRecipient: ZERO_BYTES32, destinationCaller: ZERO_BYTES32, maxFee: 1n, minFinalityThreshold: 1000 },
+  });
+  const toWeb3 = (ix: typeof burn) =>
+    new TransactionInstruction({
+      programId: new PublicKey(ix.programId),
+      keys: ix.keys.map((k) => ({ pubkey: new PublicKey(k.pubkey), isSigner: k.isSigner, isWritable: k.isWritable })),
+      data: Buffer.from(ix.data),
+    });
+
+  /** Both required signatures present and valid over the message as sent. */
+  function expectFullySigned(wire: Uint8Array) {
+    const tx = VersionedTransaction.deserialize(wire);
+    const message = tx.message.serialize();
+    const signers = tx.message.staticAccountKeys.slice(0, tx.message.header.numRequiredSignatures);
+    expect(signers.map((k) => k.toBase58())).toContain(eventAccount);
+    signers.forEach((key, i) => expect(ed25519.verify(tx.signatures[i]!, message, key.toBytes())).toBe(true));
+  }
+
+  it("adds the event account after the wallet signed (legacy)", () => {
+    const message = compileLegacyMessage(owner.publicKey.toBase58(), [...computeBudgetInstructions(200_000, 1), burn], blockhash);
+    const walletTx = VersionedTransaction.deserialize(serializeTransaction(message, new Map()));
+    walletTx.sign([owner]);
+    const wire = cosignTransaction(walletTx.serialize(), eventKey);
+    expectFullySigned(wire);
+    expect(transactionSignature(wire)).toBe(base58.encode(walletTx.signatures[0]!));
+  });
+
+  it("signs the message the wallet returned, even when the wallet rewrote it", () => {
+    // What Phantom does: its own instruction added, the message re-compiled.
+    const extra = new TransactionInstruction({ programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), keys: [], data: Buffer.from("guard") });
+    const rewritten = new TransactionMessage({
+      payerKey: owner.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [...computeBudgetInstructions(200_000, 1).map(toWeb3), toWeb3(burn), extra],
+    }).compileToV0Message();
+    const walletTx = new VersionedTransaction(rewritten);
+    walletTx.sign([owner]);
+    expectFullySigned(cosignTransaction(walletTx.serialize(), eventKey));
+  });
+
+  it("refuses a transaction the event account is not a signer of", () => {
+    const message = compileLegacyMessage(owner.publicKey.toBase58(), [...computeBudgetInstructions(200_000, 1)], blockhash);
+    const walletTx = VersionedTransaction.deserialize(serializeTransaction(message, new Map()));
+    walletTx.sign([owner]);
+    expect(() => cosignTransaction(walletTx.serialize(), eventKey)).toThrow(/expected signer/);
   });
 });

@@ -3,8 +3,7 @@ import "injective-usdc-bridge/react/styles.css";
 import "./site.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { injective, peers } from "injective-usdc-bridge";
-import { Bridge, ChainLogo, TransferStatus } from "injective-usdc-bridge/react";
+import { Bridge, TransferStatus } from "injective-usdc-bridge/react";
 import { Link, NavProvider, txRoute, usePath } from "./router";
 import { useSolanaWallet } from "./solanaWallets";
 import { StatusPage } from "./Status";
@@ -13,9 +12,6 @@ import { useWallet } from "./wallets";
 
 /** The built site is served by the bridge service, so the API is this origin. */
 const API_URL = import.meta.env.VITE_API_URL ?? "";
-
-/** Every chain the bridge reaches, Injective first. */
-const CHAINS = [injective("mainnet"), ...peers("mainnet")];
 
 const TITLES = { bridge: "USDC Bridge | Choice", status: "Status | Choice Bridge", track: "Transfer | Choice Bridge" } as const;
 
@@ -47,7 +43,6 @@ function App() {
   return (
     <NavProvider value={go}>
       <div className="site">
-        <div className="site-glow" aria-hidden />
         <header className="site-head">
           <Link to="/" className="site-brand">
             <img src="/choice-logo.svg" alt="" width={30} height={30} />
@@ -55,14 +50,6 @@ function App() {
               Choice <strong>Bridge</strong>
             </span>
           </Link>
-          <nav className="site-nav" aria-label="Main">
-            <Link to="/" className="site-nav-link" aria-current={page !== "status" ? "page" : undefined}>
-              Bridge
-            </Link>
-            <Link to="/status" className="site-nav-link" aria-current={page === "status" ? "page" : undefined}>
-              Status
-            </Link>
-          </nav>
           <WalletButtons evm={wallet} solana={solana} onOpen={openPicker} />
         </header>
 
@@ -97,19 +84,10 @@ function App() {
             </>
           ) : (
             <>
-              <div className="site-intro">
-                <h1>
-                  Bridge USDC to and from <span className="site-hl">Injective</span>
-                </h1>
-                <p>Native USDC over Circle CCTP. Every transfer is tracked until it lands, and deliveries are done for you.</p>
-                <ul className="site-chains" aria-label={`${CHAINS.length} chains`}>
-                  {CHAINS.map((c, i) => (
-                    <li key={c.key} title={c.name} style={{ animationDelay: `${120 + i * 25}ms` }}>
-                      <ChainLogo chain={c.key} name={c.name} size={24} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {/* The form is the page: on a phone a headline above it pushed the
+                  button a screen and a half down. The heading stays for screen
+                  readers and search. */}
+              <h1 className="site-sr">Bridge USDC to and from Injective</h1>
               <Bridge
                 apiUrl={API_URL}
                 wallet={bridgeWallet}

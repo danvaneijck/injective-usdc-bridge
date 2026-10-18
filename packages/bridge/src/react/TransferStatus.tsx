@@ -13,6 +13,7 @@ import { type Progress, type Step, progressOf } from "./progress.js";
 import { claimOnSolana, reclaimDeposit, refundState } from "./refunds.js";
 import type { BridgeWallet, SolanaWallet } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
+import { Toasts, showToast } from "./toast.js";
 
 export interface TransferStatusProps {
   /** CCTP domain of the source chain. */
@@ -38,6 +39,7 @@ export function TransferStatus(props: TransferStatusProps) {
   const env = useEnv(props);
   return (
     <div className={`iub ${props.className ?? ""}`}>
+      <Toasts />
       <div className="iub-view">
         <TransferTracker
           env={env}
@@ -67,6 +69,7 @@ export function TransferTracker({
   txHash,
   onBack,
   tabTitle,
+  known,
   ...wallets
 }: Wallets & {
   env: Env;
@@ -74,11 +77,18 @@ export function TransferTracker({
   txHash: string;
   onBack?: () => void;
   tabTitle?: boolean | undefined;
+  /** Views of this transaction the host already holds (Activity's rows): shown until the fresh answer lands. */
+  known?: TransferView[] | undefined;
 }) {
-  const { data, refresh } = usePoll(`tx:${domain}:${txHash}`, () => env.api.transfer(domain, txHash), 4_000);
+  const { data: fetched, error: fetchError, refresh } = usePoll(`tx:${domain}:${txHash}`, () => env.api.transfer(domain, txHash), 4_000);
+  const data = fetched ?? (known && known.length > 0 ? known : null);
   const now = useNow();
   useTransferAlerts(data ?? [], { title: tabTitle === true });
   const src = chainByDomain(env.network, domain);
+  // Only an ANSWER of "nothing yet" means it is still confirming. Before the
+  // first answer the page knows nothing, and saying "Confirming" about a
+  // transfer that finished last week is wrong.
+  const answered = fetched !== null || fetchError !== null;
 
   return (
     <div className="iub-body">
@@ -93,6 +103,19 @@ export function TransferTracker({
             <TransferCard env={env} view={v} now={now} {...wallets} onClaimed={refresh} />
           </CardBoundary>
         ))
+      ) : !answered ? (
+        <div className="iub-card" aria-busy="true">
+          <div className="iub-card-head">
+            <span className="iub-pair" style={{ width: 51, height: 32 }}>
+              <ChainLogo chain={src?.key ?? null} name={src?.name ?? "?"} size={32} />
+            </span>
+            <span className="iub-card-title">
+              <strong>Sent from {src?.name ?? "the source chain"}</strong>
+              <span className="iub-muted">Looking it up</span>
+            </span>
+            <Spinner />
+          </div>
+        </div>
       ) : (
         <div className="iub-card">
           <div className="iub-card-head">
@@ -202,7 +225,6 @@ function TransferCard({
 }) {
   const p = progressOf(view, now);
   const [claiming, setClaiming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const sent = view.source.time ? Date.parse(view.source.time) : null;
   const took = view.deliveredAt && sent !== null ? Date.parse(view.deliveredAt) - sent : null;
   const onSolana = (view.solanaClaim ?? null) !== null;
@@ -211,7 +233,6 @@ function TransferCard({
 
   async function claim() {
     setClaiming(true);
-    setError(null);
     try {
       if (onSolana) {
         if (!solanaWallet) return;
@@ -229,7 +250,7 @@ function TransferCard({
       await env.api.hint(view.source.domain, view.source.txHash);
       onClaimed();
     } catch (e) {
-      setError(friendlyError(e));
+      showToast(friendlyError(e));
     } finally {
       setClaiming(false);
     }
@@ -310,27 +331,18 @@ function TransferCard({
 
       {p.canClaim ? (
         <div className="iub-claim">
-          <p className="iub-muted">
-            {view.direction === "withdraw" && view.kind !== "forward"
-              ? `Approved. Send one transaction on ${view.destination.name} to receive it.`
-              : "Approved but not delivered yet. You can finish it yourself with one transaction."}
-            {onSolana ? " It costs about 0.001 SOL, paid by any Solana wallet you connect." : null}
-          </p>
+          {/* No sentence restating it: the steps above say it is approved, and
+              the button says what pressing it does. */}
           {canSign ? (
             <button type="button" className={claiming ? "iub-primary iub-primary-busy" : "iub-primary"} disabled={claiming} onClick={() => void claim()}>
               {claiming ? <Spinner /> : null}
               {claiming ? "Confirm in your wallet" : `Complete on ${view.destination.name}`}
             </button>
-          ) : (
-            <button type="button" className="iub-primary" disabled={!connect} onClick={connect}>
+          ) : connect ? (
+            // A host with no wallet hook gets no button at all, never a dead one.
+            <button type="button" className="iub-primary" onClick={connect}>
               {onSolana ? "Connect a Solana wallet to complete it" : "Connect a wallet to complete it"}
             </button>
-          )}
-          {error ? (
-            <div className="iub-note iub-note-error" role="alert">
-              <IconAlert />
-              <span>{error}</span>
-            </div>
           ) : null}
         </div>
       ) : null}
@@ -403,16 +415,14 @@ function RefundAction({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   async function reclaim() {
     if (!solanaWallet) return;
     setBusy(true);
-    setError(null);
     try {
       await reclaimDeposit(env, solanaWallet, view);
       onDone();
     } catch (e) {
-      setError(friendlyError(e));
+      showToast(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -428,12 +438,11 @@ function RefundAction({
         </button>
       ) : solanaWallet ? (
         <Note>Connect {shortAddress(rentPayer)}, the Solana wallet that sent it, to reclaim it.</Note>
-      ) : (
-        <button type="button" className="iub-secondary" disabled={!onConnectSolanaWallet} onClick={onConnectSolanaWallet}>
+      ) : onConnectSolanaWallet ? (
+        <button type="button" className="iub-secondary" onClick={onConnectSolanaWallet}>
           Connect a Solana wallet to reclaim it
         </button>
-      )}
-      {error ? <Note tone="error">{error}</Note> : null}
+      ) : null}
     </div>
   );
 }
