@@ -54,6 +54,15 @@ async function check(name, fn) {
   }
 }
 
+/** The To panel's figure once a quote is in: not the "0.00" placeholder. */
+async function quoted(p, timeout = 20_000) {
+  await p.locator(".iub-amount-value:not(.iub-dim)").first().waitFor({ timeout });
+  return p.locator(".iub-amount-value").first().innerText();
+}
+
+/** The collapsed time-and-cost line, e.g. "Fees up to 0.0039 USDC" or "No fees". */
+const costLine = (p) => p.locator(".iub-details-fee").first().innerText();
+
 async function open(viewport, solAddress = SOL_WALLET) {
   const page = await browser.newPage({ viewport });
   // A Wallet Standard Solana wallet that connects and refuses to sign.
@@ -114,8 +123,9 @@ await check("connects through EIP-6963", async () => {
 await check("quotes a Base deposit", async () => {
   await page.getByLabel("Amount of USDC").fill("25");
   // The breakdown sits behind its summary line; open it once and it stays open.
+  // The options sit behind the time-and-cost line; open it once and it stays open.
   await page.getByRole("button", { name: /^About .*(No fees|Fees)/ }).click({ timeout: 20_000 });
-  await page.getByText("You receive at least").waitFor({ timeout: 5000 });
+  await quoted(page);
 });
 
 await check("offers the gas drop on deposits", async () => {
@@ -125,14 +135,24 @@ await check("offers the gas drop on deposits", async () => {
 
 if (NO_GAS_ON) {
   await check(`warns that the wallet has no gas on ${NO_GAS_ON}`, async () => {
-    await page.getByText(new RegExp(`This wallet has no \\w+ on ${NO_GAS_ON} to pay for gas`)).waitFor({ timeout: 20_000 });
+    // A second line on the button, which stays pressable (sponsored-gas wallets send with none).
+    // Only once the button could be pressed: an amount WALLET holds (it has ~0.9 USDC on Base).
+    await page.getByLabel("Amount of USDC").fill("0.5");
+    await page.locator(".iub-primary-sub").getByText(new RegExp(`^No \\w+ on ${NO_GAS_ON} for gas`)).waitFor({ timeout: 20_000 });
+    if (await page.locator(".iub-primary").isDisabled()) throw new Error("the gas warning blocks the button");
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${OUT}/1b-no-gas.png` });
+    await page.getByLabel("Amount of USDC").fill("25");
   });
 }
 
 await check("picks a chain from the sheet: the wallet's USDC first, then the popular ones", async () => {
-  await page.getByRole("button", { name: /^Base/ }).first().click();
+  await page.getByRole("button", { name: /^USDC on Base/ }).click();
   const sheet = page.getByRole("dialog", { name: "Bridge from" });
   await sheet.waitFor();
+  // The one-tap grid above the list holds the first ten of the same order.
+  const quick = await sheet.getByRole("group", { name: "Popular chains" }).getByRole("button").count();
+  if (quick < 5) throw new Error(`the popular-chains grid has ${quick} tiles`);
   // WALLET holds USDC somewhere (Base, for the rescue wallet): its balance shows.
   await sheet.locator(".iub-chains-balance").first().waitFor({ timeout: 15_000 });
   const rows = await sheet.locator(".iub-chains button").allInnerTexts();
@@ -144,15 +164,17 @@ await check("picks a chain from the sheet: the wallet's USDC first, then the pop
   if (JSON.stringify(rest.slice(0, popular.length)) !== JSON.stringify(popular)) throw new Error(`the rest start ${JSON.stringify(rest.slice(0, 3))}`);
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/2-chains.png` });
-  await sheet.getByRole("button", { name: /Arbitrum/ }).click();
+  await sheet.locator(".iub-chains").getByRole("button", { name: /Arbitrum/ }).click();
   await sheet.waitFor({ state: "detached" });
-  await page.getByText("You receive at least").waitFor({ timeout: 20_000 });
+  await page.getByRole("button", { name: /^USDC on Arbitrum/ }).waitFor();
+  await quoted(page);
 });
 
 await check("searches chains and closes on Escape", async () => {
-  await page.getByRole("button", { name: /^Arbitrum/ }).first().click();
+  await page.getByRole("button", { name: /^USDC on Arbitrum/ }).click();
   const sheet = page.getByRole("dialog", { name: "Bridge from" });
   await page.getByLabel("Search chains").fill("mon");
+  if (await sheet.getByRole("group", { name: "Popular chains" }).count()) throw new Error("the popular grid stays up during a search");
   const rows = await sheet.locator(".iub-chains button").allInnerTexts();
   if (rows.length !== 1 || !rows[0].startsWith("Monad")) throw new Error(`search "mon" showed ${JSON.stringify(rows)}`);
   await page.keyboard.press("Escape");
@@ -160,12 +182,17 @@ await check("searches chains and closes on Escape", async () => {
 });
 
 await check("quotes a withdrawal with Circle delivery, never showing the old quote", async () => {
+  const deposit = await quoted(page);
   await page.getByRole("button", { name: "Swap direction" }).click();
   // Straight after the flip, the deposit's quote must be gone, not relabelled.
-  if (await page.getByText("You claim it").count()) throw new Error("stale deposit quote shown for the withdrawal");
-  await page.locator(".iub-fees div", { hasText: "Delivery" }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
-  const circleFee = await page.locator(".iub-fees div", { hasText: "Circle fee" }).locator("dd").innerText();
-  if (circleFee !== "Free") throw new Error(`Injective has no Fast transfer, but the Circle fee reads "${circleFee}"`);
+  if ((await page.locator(".iub-amount-value").count()) && (await page.locator(".iub-amount-value").first().innerText()) === deposit)
+    throw new Error(`the deposit's ${deposit} still shows on the withdrawal`);
+  const delivery = page.getByRole("radiogroup", { name: "Delivery" });
+  await delivery.getByRole("radio", { name: /Delivered for you/ }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
+  await quoted(page);
+  // Injective has no Fast transfer: the cost is the delivery fee alone, never "up to" a Circle fee.
+  const cost = await costLine(page);
+  if (!/^Fees [\d.]+ USDC$/.test(cost)) throw new Error(`the withdrawal's cost line reads "${cost}"`);
   await page.screenshot({ path: `${OUT}/3-withdraw.png` });
 });
 
@@ -173,8 +200,7 @@ await check("lets a withdrawal be claimed instead of paying for delivery", async
   const delivery = page.getByRole("radiogroup", { name: "Delivery" });
   await delivery.getByRole("radio", { name: /Delivered for you/ }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
   await delivery.getByRole("radio", { name: /Claim it yourself/ }).click();
-  await page.locator(".iub-fees div", { hasText: "Delivery" }).getByText("You claim it").waitFor({ timeout: 20_000 });
-  await page.getByText(/^Once Circle approves it, claim it on/).waitFor();
+  await page.locator(".iub-details-fee", { hasText: /^No fees$/ }).waitFor({ timeout: 20_000 });
   // Circle's fee stays in view on the option not taken.
   await delivery.getByRole("radio", { name: /Delivered for you/ }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
   await page.waitForTimeout(400);
@@ -239,29 +265,32 @@ await check("connects a Solana wallet through Wallet Standard", async () => {
 
 await check("starts a deposit from Solana, where the only connected wallet holds USDC", async () => {
   // SOL_WALLET holds USDC and no EVM wallet is connected here: the form moves off Base by itself.
-  await sp.getByRole("button", { name: /^Solana/ }).first().waitFor({ timeout: 20_000 });
+  await sp.getByRole("button", { name: /^USDC on Solana/ }).waitFor({ timeout: 20_000 });
 });
 
 await check("quotes a deposit from Solana", async () => {
   await sp.getByText(/^Balance/).waitFor({ timeout: 15_000 });
   await sp.getByLabel("Amount of USDC").fill("5");
   await sp.getByRole("button", { name: /^About .*(No fees|Fees)/ }).click({ timeout: 20_000 });
-  await sp.getByText("Solana network fee").waitFor({ timeout: 5000 });
-  await sp.getByText("You receive at least").waitFor();
+  await quoted(sp);
   await sp.waitForTimeout(600);
   await sp.screenshot({ path: `${OUT}/9-solana-deposit.png` });
 });
 
 await check("quotes a withdrawal to Solana, delivered by Circle", async () => {
   await sp.getByRole("button", { name: "Swap direction" }).click();
-  await sp.locator(".iub-fees div", { hasText: "Delivery" }).getByText(/^[\d.]+ USDC, by Circle$/).waitFor({ timeout: 20_000 });
-  await sp.getByText(`To your wallet on Solana`).waitFor();
+  // The recipient panel stays hidden until the SENDING wallet is connected, and
+  // a withdrawal sends from Injective: connect the EVM stand-in too.
+  await sp.locator(".iub-primary", { hasText: "Connect Wallet" }).click();
+  await sp.getByRole("button", { name: "Smoke Wallet" }).click();
+  await sp.getByText("Send to your wallet").waitFor({ timeout: 10_000 });
+  await quoted(sp);
   await sp.waitForTimeout(600);
   await sp.screenshot({ path: `${OUT}/10-solana-withdraw.png` });
 });
 
 await check("refuses a token account typed as the Solana recipient", async () => {
-  await sp.getByRole("button", { name: "Change" }).click();
+  await sp.locator(".iub-recipient").getByRole("button", { name: "Change" }).click();
   // The real burn spent from this account: SOL_WALLET's USDC token account.
   await sp.getByLabel("Recipient on Solana").fill("5NhytzwGCMAAYwgJZr1yJpaSYVqUQttWHGu3MpV4o38n");
   await sp.getByText(/That is a token account, not a wallet/).waitFor({ timeout: 15_000 });
