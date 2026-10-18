@@ -1,25 +1,28 @@
 name: publish-npm
 
-# Publishes packages/bridge to npm as `injective-usdc-bridge`, with provenance.
+# Publishes packages/bridge to npm as `injective-usdc-bridge`, the way
+# trippy-mcp releases: a pushed tag, npm trusted publishing (OIDC), provenance.
 #
-# Runs only on a pushed tag `bridge-v<version>` (people with write access) or
-# a manual dispatch, never on a fork PR. The tag must match the version in
-# packages/bridge/package.json.
+# Release: bump packages/bridge/package.json "version" in a PR, merge, then
+# tag the merge commit `bridge-v<version>` and push the tag. The tag must
+# match the version or the job stops before publishing. (`bridge-` because
+# this repo also releases the service image, which is not versioned this way.)
 #
-# Auth: npm trusted publishing (OIDC, `id-token: write`) once it is set up for
-# this repo and workflow on npmjs.com; until then the NPM_TOKEN secret (an
-# automation token from the publishing account). The very first publish of
-# the name has to be done by hand from that account, since npm only offers
-# trusted publishing for a package that exists. Actions are pinned to commits.
+# Auth is OIDC only: no npm token is stored anywhere. npmjs.com trusts this
+# repo and this workflow file (package Settings > Trusted Publisher > GitHub
+# Actions: danvaneijck / injective-usdc-bridge / publish-npm.yml). npm offers
+# that only for a package that already exists, so 0.1.0 was published by hand.
+#
+# Runs only on a tag push (people with write access), never on a fork PR.
+# Actions are pinned to commits.
 
 on:
   push:
     tags: ["bridge-v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # npm trusted publishing (OIDC) and provenance
 
 jobs:
   publish:
@@ -34,12 +37,10 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
       - name: Tag matches the package version
-        if: github.event_name == 'push'
         run: |
           want="bridge-v$(node -p "require('./packages/bridge/package.json').version")"
           [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, package says $want"; exit 1; }
+      - run: npm install -g npm@latest # trusted publishing needs npm >= 11.5.1
       - run: npm ci
-      # prepublishOnly typechecks, tests and builds first.
-      - run: npm publish --provenance -w packages/bridge
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # prepublishOnly typechecks, tests and builds the package first.
+      - run: npm publish -w packages/bridge # OIDC auth; provenance is automatic
