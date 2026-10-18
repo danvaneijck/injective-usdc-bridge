@@ -82,10 +82,12 @@ export function BridgeForm({
   solanaWallet,
   onConnectSolanaWallet,
   onSent,
-  defaultChain,
+  defaultChain: askedChain,
   defaultDirection,
   defaultAmount,
 }: BridgeFormProps) {
+  // A chain this registry does not have (a stale link, a typo) is no choice at all.
+  const defaultChain = askedChain && env.peerChains.some((c) => c.key === askedChain) ? askedChain : undefined;
   const [direction, setDirection] = useState<Direction>(defaultDirection ?? "deposit");
   const [peerKey, setPeerKey] = useState(defaultChain ?? "base");
   const [amountText, setAmountText] = useState(() => (defaultAmount ? sanitizeAmountInput(defaultAmount) : ""));
