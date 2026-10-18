@@ -69,6 +69,10 @@ import "injective-usdc-bridge/react/styles.css";
 />
 ```
 
+Hosts without Solana wallet code pass `builtInSolanaWallet` instead and the
+widget connects Solana wallets itself. For embedding (`bare`, `defaultAmount`,
+`onSent`, `onDelivered`, `app`) see the [package README](packages/bridge/README.md).
+
 It quotes, approves and burns (in one prompt where the wallet batches calls,
 EIP-5792), tracks every transfer through the bridge service (`apiUrl`,
 default `https://bridge-api.choice.exchange`), and offers a one-click finish
@@ -98,6 +102,17 @@ SOL_KEY_FILE=… npm run live-solana-refund -w packages/bridge -- --sig <Solana 
 # Solana claim and refund against mainnet, simulated, no funds
 npm run verify-solana-claims -w packages/bridge
 ```
+
+## Releasing the package
+
+`injective-usdc-bridge` on npm is published by CI
+([`publish-npm.yml`](.github/workflows/publish-npm.yml)) through npm trusted
+publishing, with provenance and no stored token:
+
+1. Bump `version` in `packages/bridge/package.json` in a PR (`npm version 0.1.1 -w packages/bridge --no-git-tag-version`), merge it.
+2. Tag the merge commit and push the tag: `git tag -a bridge-v0.1.1 -m "injective-usdc-bridge 0.1.1" && git push origin bridge-v0.1.1`.
+
+The job refuses a tag that does not match the package version.
 
 ## License
 

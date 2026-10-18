@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type SolanaWallet, showToast } from "injective-usdc-bridge/react";
+import { showToast } from "./toast.js";
+import type { SolanaWallet } from "./types.js";
 
 /**
- * Solana wallets for the standalone site, found through Wallet Standard (how
- * Phantom, Solflare, Backpack and MetaMask expose Solana), the counterpart of
- * EIP-6963 on the EVM side. The registration handshake is small enough to
- * implement here rather than add a dependency.
+ * Solana wallets found through Wallet Standard (how Phantom, Solflare,
+ * Backpack and MetaMask expose Solana), the counterpart of EIP-6963 on the EVM
+ * side. The registration handshake is small enough to implement here rather
+ * than add a dependency. The widget uses it for `builtInSolanaWallet`; a host
+ * with its own wallet menu can use the hook directly.
  */
 
 export interface StandardAccount {
@@ -40,7 +42,8 @@ export interface StandardWallet {
 }
 
 const CHAIN = "solana:mainnet";
-const LAST_KEY = "iub-site:solana-wallet";
+/** Where the last connected wallet's name is kept, for a quiet reconnect next visit. */
+export const SOLANA_WALLET_KEY = "iub:solana-wallet";
 
 const feature = <T>(w: StandardWallet, name: string) => w.features[name] as T | undefined;
 
@@ -52,27 +55,28 @@ function isSolanaWallet(w: StandardWallet): boolean {
   );
 }
 
-function remember(name: string | null) {
+function remember(key: string, name: string | null) {
   try {
-    if (name) localStorage.setItem(LAST_KEY, name);
-    else localStorage.removeItem(LAST_KEY);
+    if (name) localStorage.setItem(key, name);
+    else localStorage.removeItem(key);
   } catch {
     // Storage blocked: the user reconnects next visit.
   }
 }
 
-export function lastSolanaWallet(): string | null {
+export function lastSolanaWallet(key = SOLANA_WALLET_KEY): string | null {
   try {
-    return localStorage.getItem(LAST_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-/** Every Wallet Standard wallet that can sign on Solana. */
-function useStandardWallets(): StandardWallet[] {
+/** Every Wallet Standard wallet that can sign on Solana; none while `enabled` is false. */
+function useStandardWallets(enabled: boolean): StandardWallet[] {
   const [wallets, setWallets] = useState<StandardWallet[]>([]);
   useEffect(() => {
+    if (!enabled) return;
     const registered = new Set<StandardWallet>();
     const update = () => setWallets([...registered].filter(isSolanaWallet));
     const api = {
@@ -94,8 +98,8 @@ function useStandardWallets(): StandardWallet[] {
     window.addEventListener("wallet-standard:register-wallet", onRegister);
     window.dispatchEvent(new CustomEvent("wallet-standard:app-ready", { detail: api }));
     return () => window.removeEventListener("wallet-standard:register-wallet", onRegister);
-  }, []);
-  return wallets;
+  }, [enabled]);
+  return enabled ? wallets : [];
 }
 
 export interface SolanaWalletState {
@@ -108,8 +112,15 @@ export interface SolanaWalletState {
   bridgeWallet: SolanaWallet | null;
 }
 
-export function useSolanaWallet(): SolanaWalletState {
-  const wallets = useStandardWallets();
+export interface SolanaWalletOptions {
+  /** False leaves Wallet Standard alone (no listeners, no reconnect). Default true. */
+  enabled?: boolean;
+  /** localStorage key for the last wallet. Default SOLANA_WALLET_KEY. */
+  storageKey?: string;
+}
+
+export function useSolanaWallet({ enabled = true, storageKey = SOLANA_WALLET_KEY }: SolanaWalletOptions = {}): SolanaWalletState {
+  const wallets = useStandardWallets(enabled);
   const [active, setActive] = useState<StandardWallet | null>(null);
   const [account, setAccount] = useState<StandardAccount | null>(null);
 
@@ -118,7 +129,7 @@ export function useSolanaWallet(): SolanaWalletState {
   // Quietly reconnect the last wallet; `silent` never prompts.
   useEffect(() => {
     if (active) return;
-    const last = lastSolanaWallet();
+    const last = lastSolanaWallet(storageKey);
     const w = last ? wallets.find((x) => x.name === last) : undefined;
     if (!w) return;
     void feature<ConnectFeature>(w, "standard:connect")
@@ -131,7 +142,7 @@ export function useSolanaWallet(): SolanaWalletState {
         }
       })
       .catch(() => undefined);
-  }, [wallets, active]);
+  }, [wallets, active, storageKey]);
 
   // Follow account switches inside the wallet.
   useEffect(() => {
@@ -144,10 +155,10 @@ export function useSolanaWallet(): SolanaWalletState {
       else {
         setActive(null);
         setAccount(null);
-        remember(null);
+        remember(storageKey, null);
       }
     });
-  }, [active]);
+  }, [active, storageKey]);
 
   const connect = useCallback(async (w: StandardWallet) => {
     try {
@@ -156,19 +167,19 @@ export function useSolanaWallet(): SolanaWalletState {
       if (!a) throw new Error("The wallet returned no Solana account");
       setActive(w);
       setAccount(a);
-      remember(w.name);
+      remember(storageKey, w.name);
     } catch (e) {
       const err = e as { code?: number; message?: string };
       showToast(err.code === 4001 || /reject|denied|cancel/i.test(err.message ?? "") ? "Connection cancelled in your wallet." : (err.message ?? "Could not connect"));
     }
-  }, []);
+  }, [storageKey]);
 
   const disconnect = useCallback(() => {
     if (active) void feature<DisconnectFeature>(active, "standard:disconnect")?.disconnect().catch(() => undefined);
     setActive(null);
     setAccount(null);
-    remember(null);
-  }, [active]);
+    remember(storageKey, null);
+  }, [active, storageKey]);
 
   const bridgeWallet = useMemo<SolanaWallet | null>(() => {
     if (!active || !account) return null;

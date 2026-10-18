@@ -3,11 +3,10 @@ import "injective-usdc-bridge/react/styles.css";
 import "./site.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bridge, TransferStatus } from "injective-usdc-bridge/react";
+import { Bridge, TransferStatus, useSolanaWallet } from "injective-usdc-bridge/react";
 import { Link, NavProvider, txRoute, usePath } from "./router";
-import { useSolanaWallet } from "./solanaWallets";
 import { StatusPage } from "./Status";
-import { type WalletKind, WalletButtons, WalletPicker } from "./WalletUi";
+import { SOLANA_KEY, type WalletKind, WalletButtons, WalletPicker } from "./WalletUi";
 import { useWallet } from "./wallets";
 
 /** The built site is served by the bridge service, so the API is this origin. */
@@ -17,7 +16,7 @@ const TITLES = { bridge: "USDC Bridge | Choice", status: "Status | Choice Bridge
 
 function App() {
   const wallet = useWallet();
-  const solana = useSolanaWallet();
+  const solana = useSolanaWallet({ storageKey: SOLANA_KEY });
   const [path, go] = usePath();
   const [picking, setPicking] = useState<WalletKind | null>(null);
   const [kind, setKind] = useState<WalletKind>("evm");

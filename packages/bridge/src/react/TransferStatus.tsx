@@ -1,4 +1,4 @@
-import { Component, type ReactNode, useEffect, useState } from "react";
+import { Component, type ReactNode, useEffect, useRef, useState } from "react";
 import { type Address, type Hex, getAddress } from "viem";
 import { chainByDomain, explorerTxUrl } from "../chains.js";
 import { FINALITY, USDC_DECIMALS } from "../constants.js";
@@ -11,34 +11,29 @@ import { IconAlert, IconArrow, IconBack, IconBell, IconCheck, IconCopy, IconExte
 import { enableNotifications, notificationsOn, notificationsSupported, useTransferAlerts } from "./alerts.js";
 import { type Progress, type Step, progressOf } from "./progress.js";
 import { claimOnSolana, reclaimDeposit, refundState } from "./refunds.js";
-import type { BridgeWallet, SolanaWallet } from "./types.js";
+import { useSolanaWiring } from "./BuiltInSolana.js";
+import { DeliveryWatch } from "./delivered.js";
+import type { BridgeWallet, SolanaWallet, WidgetCommonProps } from "./types.js";
 import { friendlyError, sendCall } from "./wallet.js";
 import { Toasts, showToast } from "./toast.js";
 
-export interface TransferStatusProps {
+export interface TransferStatusProps extends WidgetCommonProps {
   /** CCTP domain of the source chain. */
   domain: number;
   txHash: string;
   wallet?: BridgeWallet;
   onConnectWallet?: () => void;
-  /** Finishes transfers to Solana that Circle did not deliver, and takes back a Solana burn's deposit. */
-  solanaWallet?: SolanaWallet | null;
-  onConnectSolanaWallet?: () => void;
-  network?: TransferStatusEnvProps["network"];
-  apiUrl?: string;
-  rpcUrls?: Partial<Record<string, string[]>>;
-  /** Show the transfer's progress in front of the page title. Off by default: the title is the host's. */
-  tabTitle?: boolean;
-  className?: string;
 }
-
-type TransferStatusEnvProps = Parameters<typeof useEnv>[0];
 
 /** A standalone tracking card for one source transaction, e.g. a /tx page. */
 export function TransferStatus(props: TransferStatusProps) {
   const env = useEnv(props);
+  const solana = useSolanaWiring(props);
+  const [watch] = useState(() => new DeliveryWatch());
+  const onDelivered = useRef(props.onDelivered);
+  onDelivered.current = props.onDelivered;
   return (
-    <div className={`iub ${props.className ?? ""}`}>
+    <div className={rootClass(props)}>
       <Toasts />
       <div className="iub-view">
         <TransferTracker
@@ -47,13 +42,22 @@ export function TransferStatus(props: TransferStatusProps) {
           txHash={props.txHash}
           wallet={props.wallet}
           onConnectWallet={props.onConnectWallet}
-          solanaWallet={props.solanaWallet ?? null}
-          onConnectSolanaWallet={props.onConnectSolanaWallet}
+          solanaWallet={solana.solanaWallet}
+          onConnectSolanaWallet={solana.onConnectSolanaWallet}
           tabTitle={props.tabTitle}
+          onViews={(views) => {
+            for (const v of watch.update(views)) onDelivered.current?.(v);
+          }}
         />
       </div>
+      {solana.ui}
     </div>
   );
+}
+
+/** The widget's root class: its card unless the host asked for it bare. */
+export function rootClass(p: { bare?: boolean | undefined; className?: string | undefined }): string {
+  return ["iub", p.bare ? "iub-bare" : "", p.className ?? ""].filter(Boolean).join(" ");
 }
 
 interface Wallets {
@@ -70,6 +74,7 @@ export function TransferTracker({
   onBack,
   tabTitle,
   known,
+  onViews,
   ...wallets
 }: Wallets & {
   env: Env;
@@ -79,8 +84,15 @@ export function TransferTracker({
   tabTitle?: boolean | undefined;
   /** Views of this transaction the host already holds (Activity's rows): shown until the fresh answer lands. */
   known?: TransferView[] | undefined;
+  /** Every fresh answer from the service. */
+  onViews?: ((views: TransferView[]) => void) | undefined;
 }) {
   const { data: fetched, error: fetchError, refresh } = usePoll(`tx:${domain}:${txHash}`, () => env.api.transfer(domain, txHash), 4_000);
+  const onViewsRef = useRef(onViews);
+  onViewsRef.current = onViews;
+  useEffect(() => {
+    if (fetched) onViewsRef.current?.(fetched);
+  }, [fetched]);
   const data = fetched ?? (known && known.length > 0 ? known : null);
   const now = useNow();
   useTransferAlerts(data ?? [], { title: tabTitle === true });

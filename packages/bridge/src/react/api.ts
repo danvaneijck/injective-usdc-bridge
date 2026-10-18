@@ -54,11 +54,17 @@ export interface LaneHealth {
   status: "ok" | "delayed" | "indexer_stalled" | "starting";
 }
 
+/** What the service accepts as an app label. */
+export const APP_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
 export class BridgeApi {
   private readonly base: string;
+  private readonly app: string | undefined;
 
-  constructor(base: string) {
+  /** `app` labels this host's hints for the service's per-app counts. */
+  constructor(base: string, opts: { app?: string | undefined } = {}) {
     this.base = base.replace(/\/$/, "");
+    this.app = opts.app && APP_RE.test(opts.app) ? opts.app : undefined;
   }
 
   async transfers(address: string): Promise<TransferView[]> {
@@ -85,7 +91,7 @@ export class BridgeApi {
     await fetch(`${this.base}/v1/transfers/hint`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceDomain: domain, txHash }),
+      body: JSON.stringify({ sourceDomain: domain, txHash, ...(this.app ? { app: this.app } : {}) }),
     }).catch(() => undefined);
   }
 

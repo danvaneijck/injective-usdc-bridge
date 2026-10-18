@@ -10,7 +10,11 @@ import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
 import { feeLine, receiverOf } from "../src/react/TransferStatus.js";
-import { peers } from "../src/chains.js";
+import { DeliveryWatch } from "../src/react/delivered.js";
+import { APP_RE } from "../src/react/api.js";
+import { rootClass } from "../src/react/TransferStatus.js";
+import { ChainSwitchError, ensureChain, friendlyError } from "../src/react/wallet.js";
+import { injective, peers } from "../src/chains.js";
 import { toEvmAddress, toInjAddress } from "../src/address.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00Z");
@@ -292,5 +296,65 @@ describe("alerts", () => {
       body: "Your transfer from Base was delivered.",
     });
     expect(landingMessage(view({ ...withdrawal, phase: "ready" }), "claim").title).toBe("25 USDC is ready to claim on Arbitrum");
+  });
+});
+
+describe("DeliveryWatch", () => {
+  it("fires once for a transfer seen on its way, then delivered", () => {
+    const w = new DeliveryWatch();
+    expect(w.update([view({})])).toEqual([]);
+    const done = view({ phase: "delivered" });
+    expect(w.update([done]).map((v) => v.id)).toEqual([done.id]);
+    expect(w.update([done])).toEqual([]);
+  });
+
+  it("fires for a burn sent here even when first seen delivered, never for old history", () => {
+    const w = new DeliveryWatch();
+    const old = view({ id: "6:0xold:0", phase: "delivered", source: { ...view({}).source, txHash: "0xold" } });
+    expect(w.update([old])).toEqual([]);
+    w.markSent(6, "0xABC");
+    expect(w.update([old, view({ phase: "delivered" })]).map((v) => v.id)).toEqual(["6:0xabc:0"]);
+  });
+});
+
+describe("host embedding", () => {
+  it("drops the card only when asked", () => {
+    expect(rootClass({})).toBe("iub");
+    expect(rootClass({ bare: true, className: "host" })).toBe("iub iub-bare host");
+  });
+
+  it("takes app labels the service keeps, nothing else", () => {
+    expect(APP_RE.test("choice")).toBe(true);
+    expect(APP_RE.test("sprout-fun")).toBe(true);
+    expect(APP_RE.test("Choice")).toBe(false);
+    expect(APP_RE.test("-x")).toBe(false);
+    expect(APP_RE.test("a".repeat(33))).toBe(false);
+  });
+
+  const base = peers("mainnet").find((c) => c.key === "base")!;
+  const wallet = (onSwitch: () => unknown) => ({
+    request: async ({ method }: { method: string }) => {
+      if (method === "eth_chainId") return "0x6f0"; // Injective, 1776
+      if (method === "wallet_switchEthereumChain") return onSwitch();
+      throw new Error(`unexpected ${method}`);
+    },
+  });
+
+  it("says plainly when a single-chain wallet cannot leave Injective", async () => {
+    if (base.kind !== "evm") throw new Error("base is EVM");
+    const e = await ensureChain(wallet(() => Promise.reject({ code: -32603, message: "Unsupported chain" })), base).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ChainSwitchError);
+    expect(friendlyError(e)).toMatch(/could not switch to Base.*withdraw here/);
+  });
+
+  it("lets a cancel in the wallet through as a cancel", async () => {
+    if (base.kind !== "evm") throw new Error("base is EVM");
+    const e = await ensureChain(wallet(() => Promise.reject({ code: 4001, message: "User rejected the request." })), base).catch((x: unknown) => x);
+    expect(e).not.toBeInstanceOf(ChainSwitchError);
+    expect(friendlyError(e)).toBe("Cancelled in your wallet.");
+  });
+
+  it("does nothing when the wallet is already there", async () => {
+    await expect(ensureChain(wallet(() => Promise.reject(new Error("no switch expected"))), injective("mainnet"))).resolves.toBeUndefined();
   });
 });

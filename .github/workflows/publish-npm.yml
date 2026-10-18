@@ -1,0 +1,46 @@
+name: publish-npm
+
+# Publishes packages/bridge to npm as `injective-usdc-bridge`, the way
+# trippy-mcp releases: a pushed tag, npm trusted publishing (OIDC), provenance.
+#
+# Release: bump packages/bridge/package.json "version" in a PR, merge, then
+# tag the merge commit `bridge-v<version>` and push the tag. The tag must
+# match the version or the job stops before publishing. (`bridge-` because
+# this repo also releases the service image, which is not versioned this way.)
+#
+# Auth is OIDC only: no npm token is stored anywhere. npmjs.com trusts this
+# repo and this workflow file (package Settings > Trusted Publisher > GitHub
+# Actions: danvaneijck / injective-usdc-bridge / publish-npm.yml). npm offers
+# that only for a package that already exists, so 0.1.0 was published by hand.
+#
+# Runs only on a tag push (people with write access), never on a fork PR.
+# Actions are pinned to commits.
+
+on:
+  push:
+    tags: ["bridge-v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches the package version
+        run: |
+          want="bridge-v$(node -p "require('./packages/bridge/package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, package says $want"; exit 1; }
+      - run: npm install -g npm@latest # trusted publishing needs npm >= 11.5.1
+      - run: npm ci
+      # prepublishOnly typechecks, tests and builds the package first.
+      - run: npm publish -w packages/bridge # OIDC auth; provenance is automatic

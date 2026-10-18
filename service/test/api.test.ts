@@ -97,6 +97,18 @@ describe("API", () => {
     expect((await app.request("/v1/transfers?address=0x123")).status).toBe(400);
   });
 
+  it("hint keeps the first app label it is given, and drops malformed ones", async () => {
+    const { app, store } = setup();
+    const tx = `0x${"cc".repeat(32)}`;
+    const hint = (body: object) =>
+      app.request("/v1/transfers/hint", { method: "POST", body: JSON.stringify({ sourceDomain: 6, txHash: tx, ...body }), headers: { "content-type": "application/json" } });
+    expect((await hint({ app: "Not An App!" })).status).toBe(202);
+    expect(store.appOf(6, tx)).toBeUndefined();
+    await hint({ app: "sprout" });
+    await hint({ app: "choice" });
+    expect(store.appOf(6, tx)).toBe("sprout");
+  });
+
   it("health reports a delayed lane when Circle is slow for that source", async () => {
     const { app, store, clock } = setup();
     store.setCursor("base", 100, 104, clock.t);

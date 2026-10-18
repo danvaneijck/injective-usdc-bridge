@@ -25,6 +25,9 @@
   --iub-accent: #fdc70c;
   --iub-accent-hover: #ffd94a;
   --iub-accent-soft: rgba(253, 199, 12, 0.12);
+  /* The primary button's fill, top to bottom. */
+  --iub-accent-from: #ffd94a;
+  --iub-accent-to: #f2b705;
   --iub-on-accent: #14110a;
   --iub-positive: #34d399;
   --iub-positive-soft: rgba(52, 211, 153, 0.12);
@@ -38,6 +41,11 @@
     0 1px 2px rgba(0, 0, 0, 0.5),
     0 32px 64px -28px rgba(0, 0, 0, 0.8);
   --iub-logo-ring: rgba(255, 255, 255, 0.1);
+  /* Solid tiles on the card: the flip button, and the ring round a chain badge. */
+  --iub-tile: #18191e;
+  --iub-tile-hover: #1c1d23;
+  --iub-tile-text: #b3b5bd;
+  --iub-badge-ring: #1d1e23;
   --iub-radius: 20px;
   --iub-radius-panel: 14px;
   --iub-radius-control: 12px;
@@ -55,11 +63,11 @@
   /* surface-hero: the exchange's swap panel. Warm light from the top edge, a
      gold hairline along it, lifted by a long shadow rather than by colour. */
   background:
-    radial-gradient(120% 50% at 50% -8%, rgba(253, 199, 12, 0.075), transparent 60%),
+    radial-gradient(120% 50% at 50% -8%, color-mix(in srgb, var(--iub-accent) 7.5%, transparent), transparent 60%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 160px),
     var(--iub-bg);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(253, 199, 12, 0.2);
+  border-top-color: color-mix(in srgb, var(--iub-accent) 20%, transparent);
   border-radius: var(--iub-radius);
   box-shadow: var(--iub-shadow);
   color: var(--iub-text);
@@ -68,6 +76,16 @@
   line-height: 20px;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+/* Inside a host's own card or modal: no card of its own, the host's width. */
+.iub.iub-bare {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 :where(.iub) *,
 :where(.iub) *::before,
@@ -179,10 +197,10 @@
 }
 @keyframes iub-halo {
   0% {
-    box-shadow: 0 0 0 0 rgba(253, 199, 12, 0.35);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--iub-accent) 35%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 9px rgba(253, 199, 12, 0);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--iub-accent) 0%, transparent);
   }
 }
 
@@ -474,7 +492,7 @@ button.iub-asset:active {
   display: flex;
   border-radius: 50%;
   /* Solid: the chip is translucent, and a translucent ring shows the coin through it. */
-  box-shadow: 0 0 0 2px #1d1e23;
+  box-shadow: 0 0 0 2px var(--iub-badge-ring);
 }
 .iub-asset-text {
   display: flex;
@@ -520,8 +538,8 @@ button.iub-asset:active {
   border-radius: 14px;
   border: 4px solid var(--iub-bg);
   /* The swap panel's flip: a solid tile cut out of the card by its ring. */
-  background: #18191e;
-  color: #b3b5bd;
+  background: var(--iub-tile);
+  color: var(--iub-tile-text);
   transition:
     transform 0.45s var(--iub-ease),
     color 0.15s ease,
@@ -529,7 +547,7 @@ button.iub-asset:active {
 }
 .iub-flip:hover {
   color: var(--iub-text);
-  background: #1c1d23;
+  background: var(--iub-tile-hover);
 }
 
 /* ── Skeletons ─────────────────────────────────────────────────────────── */
@@ -564,7 +582,7 @@ button.iub-asset:active {
   width: calc(50% - 4px);
   border-radius: var(--iub-radius-control);
   background: var(--iub-raised);
-  box-shadow: inset 0 0 0 1px rgba(253, 199, 12, 0.55);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--iub-accent) 55%, transparent);
   transition: transform 0.32s var(--iub-ease);
 }
 .iub-segment[data-active="1"] .iub-segment-indicator {
@@ -618,8 +636,8 @@ button.iub-asset:active {
   border-color: var(--iub-border-strong);
 }
 .iub-toggle-row[aria-checked="true"] {
-  border-color: rgba(253, 199, 12, 0.35);
-  background: linear-gradient(90deg, rgba(253, 199, 12, 0.06), transparent 70%), var(--iub-panel);
+  border-color: color-mix(in srgb, var(--iub-accent) 35%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--iub-accent) 6%, transparent), transparent 70%), var(--iub-panel);
 }
 .iub-toggle-text {
   display: flex;
@@ -756,13 +774,13 @@ button.iub-asset:active {
    the form (connect a wallet, use mine), never competing with the CTA. */
 .iub-action-tint {
   border-color: transparent;
-  background: rgba(253, 199, 12, 0.12);
+  background: color-mix(in srgb, var(--iub-accent) 12%, transparent);
   box-shadow: none;
   color: var(--iub-accent);
 }
 .iub-action-tint:hover {
   border-color: transparent;
-  background: rgba(253, 199, 12, 0.2);
+  background: color-mix(in srgb, var(--iub-accent) 20%, transparent);
 }
 
 /* ── Fee details: summary line, breakdown on demand ───────────────────── */
@@ -894,11 +912,11 @@ button.iub-asset:active {
   margin-top: 4px;
   overflow: hidden;
   border-radius: 18px;
-  background: linear-gradient(180deg, #ffd94a, #f2b705);
+  background: linear-gradient(180deg, var(--iub-accent-from), var(--iub-accent-to));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12),
-    0 8px 24px -10px rgba(253, 199, 12, 0.55);
+    0 8px 24px -10px color-mix(in srgb, var(--iub-accent) 55%, transparent);
   color: var(--iub-on-accent);
   font-size: 17px;
   font-weight: 600;
@@ -925,7 +943,7 @@ button.iub-asset:active {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12),
-    0 10px 32px -10px rgba(253, 199, 12, 0.7);
+    0 10px 32px -10px color-mix(in srgb, var(--iub-accent) 70%, transparent);
 }
 .iub-primary:active:not(:disabled) {
   transform: translateY(1px);
@@ -944,7 +962,7 @@ button.iub-asset:active {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(253, 199, 12, 0.14), transparent) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--iub-accent) 14%, transparent), transparent) 0 0 / 200% 100%;
   animation: iub-shimmer 1.6s ease-in-out infinite;
 }
 .iub-secondary {
@@ -1215,6 +1233,48 @@ button.iub-asset:active {
 .iub-chip svg {
   width: 12px;
   height: 12px;
+}
+
+/* ── Built-in Solana wallet ─────────────────────────────────────────────── */
+.iub-solaccount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  animation: iub-fade 0.2s ease;
+}
+.iub-wallet-face {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.iub-wallet-face img {
+  width: 100%;
+  height: 100%;
+  border-radius: 25%;
+}
+.iub-wallet-face-chain {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--iub-bg);
+}
+.iub-install {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.iub-install a {
+  text-decoration: none;
+}
+.iub-disconnect {
+  align-self: center;
+  margin: 4px 0 8px;
 }
 
 /* ── Tracking ──────────────────────────────────────────────────────────── */

@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Address, getAddress, isAddress } from "viem";
 import { Activity } from "./Activity.js";
 import { useTransferAlerts } from "./alerts.js";
 import { BridgeForm } from "./BridgeForm.js";
+import { useSolanaWiring } from "./BuiltInSolana.js";
+import { DeliveryWatch } from "./delivered.js";
 import { useActivity, useEnv } from "./hooks.js";
 import { progressOf } from "./progress.js";
 import type { TransferView } from "./api.js";
-import { TransferTracker } from "./TransferStatus.js";
+import { TransferTracker, rootClass } from "./TransferStatus.js";
 import { Toasts } from "./toast.js";
 import type { BridgeProps } from "./types.js";
 
@@ -22,10 +24,24 @@ type View =
 export function Bridge(props: BridgeProps) {
   const env = useEnv(props);
   const [view, setView] = useState<View>({ name: "form" });
+  const solana = useSolanaWiring(props);
   const raw = props.wallet.address;
   const address: Address | null = raw && isAddress(raw, { strict: false }) ? getAddress(raw) : null;
-  const solAddress = props.solanaWallet?.address ?? null;
+  const solAddress = solana.solanaWallet?.address ?? null;
   const activity = useActivity(env, [address, solAddress].filter((a): a is string => a !== null));
+
+  // Landings, from Activity's poll and from the tracker's faster one.
+  const [watch] = useState(() => new DeliveryWatch());
+  const onDelivered = useRef(props.onDelivered);
+  onDelivered.current = props.onDelivered;
+  const report = (views: TransferView[]) => {
+    for (const v of watch.update(views)) onDelivered.current?.(v);
+  };
+  useEffect(() => {
+    report(activity.items.flatMap((it) => (it.view ? [it.view] : [])));
+    // report only reads refs and the watch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activity.items]);
   const inFlight = activity.items.filter((it) => !it.view || progressOf(it.view, Date.now()).headline !== "Delivered").length;
   const tab = view.name === "activity" || (view.name === "track" && view.from === "activity") ? "activity" : "form";
   const [lookup, setLookup] = useState<string | null>(null);
@@ -38,7 +54,7 @@ export function Bridge(props: BridgeProps) {
   );
 
   return (
-    <div className={`iub ${props.className ?? ""}`}>
+    <div className={rootClass(props)}>
       <Toasts />
       <div className="iub-tabs" role="tablist" data-active={tab === "form" ? "0" : "1"}>
         <span className="iub-tabs-indicator" aria-hidden />
@@ -59,11 +75,16 @@ export function Bridge(props: BridgeProps) {
           address={address}
           provider={props.wallet.provider}
           onConnectWallet={props.onConnectWallet}
-          solanaWallet={props.solanaWallet ?? null}
-          onConnectSolanaWallet={props.onConnectSolanaWallet}
-          onSent={(domain, txHash) => setView({ name: "track", domain, txHash, from: "form" })}
+          solanaWallet={solana.solanaWallet}
+          onConnectSolanaWallet={solana.onConnectSolanaWallet}
+          onSent={(sent) => {
+            watch.markSent(sent.domain, sent.txHash);
+            setView({ name: "track", domain: sent.domain, txHash: sent.txHash, from: "form" });
+            props.onSent?.(sent);
+          }}
           defaultChain={props.defaultChain}
           defaultDirection={props.defaultDirection}
+          defaultAmount={props.defaultAmount}
         />
       </div>
 
@@ -78,7 +99,7 @@ export function Bridge(props: BridgeProps) {
             onOpen={(domain, txHash, known) => setView({ name: "track", domain, txHash, from: "activity", known })}
             onStart={() => setView({ name: "form" })}
             onConnectWallet={props.onConnectWallet}
-            solanaWallet={props.solanaWallet ?? null}
+            solanaWallet={solana.solanaWallet}
             lookup={lookup}
             onLookup={setLookup}
           />
@@ -93,8 +114,9 @@ export function Bridge(props: BridgeProps) {
             txHash={view.txHash}
             wallet={props.wallet}
             onConnectWallet={props.onConnectWallet}
-            solanaWallet={props.solanaWallet ?? null}
-            onConnectSolanaWallet={props.onConnectSolanaWallet}
+            solanaWallet={solana.solanaWallet}
+            onConnectSolanaWallet={solana.onConnectSolanaWallet}
+            onViews={report}
             // What Activity already knows about it, so a delivered transfer
             // opens as delivered instead of passing through a placeholder.
             known={
@@ -107,6 +129,7 @@ export function Bridge(props: BridgeProps) {
           />
         </div>
       ) : null}
+      {solana.ui}
     </div>
   );
 }

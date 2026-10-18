@@ -1,5 +1,6 @@
 import type { Network } from "../constants.js";
 import type { Direction } from "../quote.js";
+import type { TransferView } from "./api.js";
 
 /** EIP-1193, as far as the widget uses it. */
 export interface Eip1193Provider {
@@ -35,20 +36,37 @@ export interface SolanaWallet {
   signTransaction?: (transaction: Uint8Array) => Promise<Uint8Array>;
 }
 
-export interface BridgeProps {
-  wallet: BridgeWallet;
-  /** Opens the host's wallet picker. Without it the button only says to connect. */
-  onConnectWallet?: () => void;
+/** A burn the widget just signed, as handed to `onSent`. */
+export interface SentTransfer {
+  direction: Direction;
+  /** Chain keys, e.g. "base" and "injective". */
+  source: string;
+  destination: string;
+  /** CCTP domain and transaction (0x hash, or base58 signature on Solana) of the burn. */
+  domain: number;
+  txHash: string;
+  /** USDC base units burned (6 decimals). */
+  amount: bigint;
+  /** What the quote promised at least, in USDC base units. */
+  minReceived: bigint;
+  recipient: string;
+}
+
+/** Props both the form and the tracking card take. */
+export interface WidgetCommonProps {
   /** Solana wallet, for bridging from Solana. Withdrawals to Solana need only an address. */
   solanaWallet?: SolanaWallet | null;
   /** Opens the host's Solana wallet picker. */
   onConnectSolanaWallet?: () => void;
+  /**
+   * For hosts with no Solana wallet code: the widget finds Solana wallets
+   * (Wallet Standard: Phantom, Solflare, Backpack...) and connects them
+   * itself, with its own picker. Ignored when `solanaWallet` is passed.
+   */
+  builtInSolanaWallet?: boolean;
   network?: Network;
   /** The bridge service. Defaults to Choice's. "" means this page's own origin. */
   apiUrl?: string;
-  /** Peer chain the form opens on. Without it, deposits start where the wallet holds USDC. */
-  defaultChain?: string;
-  defaultDirection?: Direction;
   /**
    * Show transfers' progress in front of the page title ("12 min left | ...").
    * Off by default: the title is the host's.
@@ -56,7 +74,36 @@ export interface BridgeProps {
   tabTitle?: boolean;
   /** Per chain key, RPCs placed ahead of the registry's (for balance reads and receipts). */
   rpcUrls?: Partial<Record<string, string[]>>;
+  /**
+   * Drop the widget's own card (width cap, background, border, shadow), for a
+   * host that puts it inside a card or modal of its own.
+   */
+  bare?: boolean;
+  /** A transfer seen on its way in this session has landed. Fires once per transfer. */
+  onDelivered?: (transfer: TransferView) => void;
   className?: string;
+}
+
+export interface BridgeProps extends WidgetCommonProps {
+  wallet: BridgeWallet;
+  /** Opens the host's wallet picker. Without it the button only says to connect. */
+  onConnectWallet?: () => void;
+  /** Peer chain the form opens on. Without it, deposits start where the wallet holds USDC. */
+  defaultChain?: string;
+  defaultDirection?: Direction;
+  /**
+   * USDC the amount field starts with, as decimal text ("25" or "12.5"). Read
+   * on mount: give the widget a new `key` to start over with another.
+   */
+  defaultAmount?: string;
+  /** The user signed a burn. The form has moved on to tracking it. */
+  onSent?: (transfer: SentTransfer) => void;
+  /**
+   * Which app the transfer came from, for the service's per-app counts
+   * ("choice", "sprout"): lowercase letters, digits and dashes, 32 at most.
+   * A label only; it is sent with the tracking hint and moves no money.
+   */
+  app?: string;
 }
 
 export const DEFAULT_API_URL = "https://bridge-api.choice.exchange";
