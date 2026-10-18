@@ -96,8 +96,11 @@ export function BridgeForm({
   const [busy, setBusy] = useState<Busy>(null);
   const [flips, setFlips] = useState(0);
   const [details, setDetails] = useState(false);
-  /** A send pressed mid re-check: the amount it showed, to hold the fresh quote to. */
-  const [queued, setQueued] = useState<bigint | null>(null);
+  /**
+   * A send pressed mid re-check: the amount it showed, to hold the fresh quote
+   * to, and the recipient it showed, so the send can never go somewhere else.
+   */
+  const [queued, setQueued] = useState<{ minReceived: bigint; recipient: string } | null>(null);
   /** The user (or the host, through defaultChain) chose the chain: never move it for them. */
   const [chainChosen, setChainChosen] = useState(defaultChain !== undefined);
   const body = useRef<HTMLDivElement>(null);
@@ -323,17 +326,21 @@ export function BridgeForm({
     // A re-check for the same route and amount (a new recipient, say) is in
     // flight. The button keeps looking ready; a press waits for the answer and
     // sends only if it gives at least what was on screen when pressed.
-    action = { label: readyLabel, enabled: true, run: () => setQueued(held.minReceived) };
+    action = { label: readyLabel, enabled: true, run: () => setQueued({ minReceived: held.minReceived, recipient }) };
   } else action = { label: readyLabel, enabled: true, run: () => void submit() };
 
   // A press made while re-checking: send once the fresh quote is in, unless
-  // it is worse than what the user saw, or the form stopped being sendable.
+  // it is worse than what the user saw, the recipient is no longer the one on
+  // screen when they pressed, or the form stopped being sendable. A press that
+  // does not send says so: a button that spins and then does nothing reads as
+  // a send that went out.
   useEffect(() => {
     if (queued === null) return;
-    if (!action.enabled) setQueued(null);
+    if (!action.enabled || recipient !== queued.recipient) setQueued(null);
     else if (fresh && quote) {
       setQueued(null);
-      if (quote.minReceived >= queued) void submit();
+      if (quote.minReceived >= queued.minReceived) void submit();
+      else showToast(`The quote changed: you would now receive ${formatUsdc(quote.minReceived, 6)} USDC. Check it and press again.`);
     }
   });
 
