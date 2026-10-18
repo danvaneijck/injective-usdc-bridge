@@ -1,8 +1,15 @@
 {
   "name": "injective-usdc-bridge",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Native USDC bridge to and from Injective over Circle CCTP V2: chain registry, burn builders, attestation client and delivery status.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danvaneijck/injective-usdc-bridge.git",
+    "directory": "packages/bridge"
+  },
+  "homepage": "https://bridge.choice.exchange",
+  "bugs": "https://github.com/danvaneijck/injective-usdc-bridge/issues",
   "type": "module",
   "sideEffects": [
     "*.css"
@@ -35,8 +42,12 @@
   },
   "files": [
     "dist",
+    "README.md",
     "THIRD_PARTY_NOTICES.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "injective",
     "usdc",
@@ -47,6 +58,7 @@
   "scripts": {
     "build": "tsup && cp src/react/styles.css dist/react/styles.css",
     "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "typecheck": "tsc --noEmit",
     "verify-chains": "tsx scripts/verify-chains.ts",
     "live-withdraw": "tsx scripts/live-withdraw.ts",

@@ -22,6 +22,8 @@ export interface ApiDeps {
 }
 
 const TX_RE = /^0x[0-9a-fA-F]{64}$/;
+/** An app label on a hint; anything else is dropped, the hint still counts. */
+const APP_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const RECENT_HINT_MS = 30_000;
 
 /**
@@ -125,9 +127,10 @@ export function createApi(d: ApiDeps): Hono {
 
   /** The widget posts its burn here right after signing, so tracking starts at once. */
   app.post("/v1/transfers/hint", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { sourceDomain?: unknown; txHash?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { sourceDomain?: unknown; txHash?: unknown; app?: unknown };
     const t = parseTarget(body.sourceDomain, body.txHash);
     if ("error" in t) return c.json({ error: t.error }, 400);
+    if (typeof body.app === "string" && APP_RE.test(body.app)) d.store.noteApp(t.domain, t.tx, body.app, Date.now());
     const rows = await lookup(t.domain, t.tx, true);
     return c.json({ transfers: view(rows) }, rows.length ? 200 : 202);
   });

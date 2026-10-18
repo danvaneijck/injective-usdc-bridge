@@ -69,6 +69,10 @@ import "injective-usdc-bridge/react/styles.css";
 />
 ```
 
+Hosts without Solana wallet code pass `builtInSolanaWallet` instead and the
+widget connects Solana wallets itself. For embedding (`bare`, `defaultAmount`,
+`onSent`, `onDelivered`, `app`) see the [package README](packages/bridge/README.md).
+
 It quotes, approves and burns (in one prompt where the wallet batches calls,
 EIP-5792), tracks every transfer through the bridge service (`apiUrl`,
 default `https://bridge-api.choice.exchange`), and offers a one-click finish

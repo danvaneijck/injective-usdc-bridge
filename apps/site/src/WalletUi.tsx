@@ -1,11 +1,14 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { ChainLogo } from "injective-usdc-bridge/react";
 import { encode } from "uqr";
-import { type SolanaWalletState, lastSolanaWallet } from "./solanaWallets";
+import { type SolanaWalletState, lastSolanaWallet } from "injective-usdc-bridge/react";
 import { WC_WALLETS } from "./walletConnect";
 import { type WalletState, lastWallet } from "./wallets";
 
 export type WalletKind = "evm" | "solana";
+
+/** The site's own key for the last Solana wallet, from before the hook moved into the package. */
+export const SOLANA_KEY = "iub-site:solana-wallet";
 
 /** Keeps something mounted while it animates out. */
 function usePresence(open: boolean, ms = 200): { mounted: boolean; closing: boolean } {
@@ -312,7 +315,7 @@ export function WalletPicker({
   }, [open]);
 
   const lastEvm = lastWallet();
-  const lastSol = lastSolanaWallet();
+  const lastSol = lastSolanaWallet(SOLANA_KEY);
   const wc = kind === "evm" ? evm.walletConnect : null;
   const browser: Choice[] =
     kind === "evm"

@@ -8,10 +8,38 @@ export function explorerBase(chain: EvmChain): string {
   return chain.explorerTx.replace(/\/tx\/\{hash\}$/, "");
 }
 
+/**
+ * The wallet would not move to a chain. Wallets that live on one chain only
+ * (Keplr's and Leap's EVM side, embedded Injective wallets) end up here when
+ * a deposit asks for Base or Arbitrum; a cancel in the wallet does not.
+ */
+export class ChainSwitchError extends Error {
+  readonly chainName: string;
+  constructor(chain: EvmChain, cause: unknown) {
+    super(`The wallet could not switch to ${chain.name}`, { cause });
+    this.name = "ChainSwitchError";
+    this.chainName = chain.name;
+  }
+}
+
+const isRejection = (e: unknown) => {
+  const err = e as { code?: number; message?: string; cause?: { code?: number } };
+  return err.code === 4001 || err.cause?.code === 4001 || /user (rejected|denied)|rejected the request/i.test(err.message ?? "");
+};
+
 /** Puts the wallet on `chain`, adding it first when the wallet does not know it. */
 export async function ensureChain(provider: Eip1193Provider, chain: EvmChain): Promise<void> {
   const current = Number(await provider.request({ method: "eth_chainId" }));
   if (current === chain.chainId) return;
+  try {
+    await switchTo(provider, chain);
+  } catch (e) {
+    if (isRejection(e)) throw e;
+    throw new ChainSwitchError(chain, e);
+  }
+}
+
+async function switchTo(provider: Eip1193Provider, chain: EvmChain): Promise<void> {
   const chainId = numberToHex(chain.chainId);
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
@@ -110,6 +138,9 @@ export async function sendBatch(
 
 /** Plain words for a wallet or chain error. */
 export function friendlyError(e: unknown): string {
+  if (e instanceof ChainSwitchError) {
+    return `Your wallet could not switch to ${e.chainName}. Wallets that only work on Injective can withdraw here; to bridge from ${e.chainName}, connect a wallet like MetaMask or Rabby.`;
+  }
   const err = e as { name?: string; code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
   const text = `${err.shortMessage ?? ""} ${err.message ?? ""}`;
   if (err.name === "UserRejectedRequestError" || err.code === 4001 || err.cause?.code === 4001 || /user (rejected|denied)|rejected the request/i.test(text)) {

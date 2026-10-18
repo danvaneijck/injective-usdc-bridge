@@ -29,7 +29,7 @@ export interface Env {
   solanaRpc: string[];
 }
 
-export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partial<Record<string, string[]>> }): Env {
+export function useEnv(p: { network?: Network | undefined; apiUrl?: string | undefined; rpcUrls?: Partial<Record<string, string[]>> | undefined; app?: string | undefined }): Env {
   const rpcKey = JSON.stringify(p.rpcUrls ?? {});
   return useMemo(() => {
     const network = p.network ?? "mainnet";
@@ -40,7 +40,7 @@ export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partia
     const sol = peerChains.find((c) => c.kind === "solana");
     return {
       network,
-      api: new BridgeApi(p.apiUrl ?? DEFAULT_API_URL),
+      api: new BridgeApi(p.apiUrl ?? DEFAULT_API_URL, { app: p.app }),
       iris: new IrisClient({ network }),
       journal: new Journal(),
       inj,
@@ -59,7 +59,7 @@ export function useEnv(p: { network?: Network; apiUrl?: string; rpcUrls?: Partia
     };
     // rpcKey stands in for p.rpcUrls, whose identity changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.network, p.apiUrl, rpcKey]);
+  }, [p.network, p.apiUrl, p.app, rpcKey]);
 }
 
 /** Re-renders every `ms`, for countdowns. */

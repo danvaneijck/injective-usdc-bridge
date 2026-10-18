@@ -29,7 +29,7 @@ import {
 } from "./hooks.js";
 import { IconAlert, IconBolt, IconChevron, IconClock, IconFlip, IconInfo, IconParcel, IconWallet, Spinner } from "./icons.js";
 import { sendWithSolanaWallet } from "./solanaSend.js";
-import type { Eip1193Provider, SolanaWallet } from "./types.js";
+import type { Eip1193Provider, SentTransfer, SolanaWallet } from "./types.js";
 import { canBatch, friendlyError, sendBatch, sendCall } from "./wallet.js";
 import { showToast } from "./toast.js";
 
@@ -68,9 +68,10 @@ export interface BridgeFormProps {
   onConnectWallet?: (() => void) | undefined;
   solanaWallet: SolanaWallet | null;
   onConnectSolanaWallet?: (() => void) | undefined;
-  onSent(domain: number, txHash: string): void;
+  onSent(sent: SentTransfer): void;
   defaultChain?: string | undefined;
   defaultDirection?: Direction | undefined;
+  defaultAmount?: string | undefined;
 }
 
 export function BridgeForm({
@@ -83,10 +84,11 @@ export function BridgeForm({
   onSent,
   defaultChain,
   defaultDirection,
+  defaultAmount,
 }: BridgeFormProps) {
   const [direction, setDirection] = useState<Direction>(defaultDirection ?? "deposit");
   const [peerKey, setPeerKey] = useState(defaultChain ?? "base");
-  const [amountText, setAmountText] = useState("");
+  const [amountText, setAmountText] = useState(() => (defaultAmount ? sanitizeAmountInput(defaultAmount) : ""));
   const [speedChoice, setSpeedChoice] = useState<Speed | null>(null);
   const [dropChoice, setDropChoice] = useState<boolean | null>(null);
   /** Withdrawals: claim on the destination instead of paying Circle to deliver. */
@@ -237,6 +239,17 @@ export function BridgeForm({
     setFlips((n) => n + 1);
   }
 
+  const sentOf = (domain: number, txHash: string, q: NonNullable<typeof quote>, to: string): SentTransfer => ({
+    direction,
+    source: source.key,
+    destination: destination.key,
+    domain,
+    txHash,
+    amount: q.amount,
+    minReceived: q.minReceived,
+    recipient: to,
+  });
+
   /** Remember the burn the moment it has an id, so a closed tab never loses it. */
   function record(domain: number, txHash: string, by: string) {
     env.journal.add({ domain, txHash, address: by.toLowerCase(), at: Date.now() });
@@ -260,7 +273,7 @@ export function BridgeForm({
       setBusy("confirming");
     });
     setAmountText("");
-    onSent(source.domain, signature);
+    onSent(sentOf(source.domain, signature, quote, recipient));
   }
 
   async function submitEvm() {
@@ -292,7 +305,7 @@ export function BridgeForm({
     }
     record(source.domain, hash, address);
     setAmountText("");
-    onSent(source.domain, hash);
+    onSent(sentOf(source.domain, hash, quote, recipient));
   }
 
   async function submit() {

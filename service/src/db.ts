@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+-- Which app a burn was sent from, as the widget labels its hint ("choice",
+-- "sprout"). A browser's word, for counting volume per app; never a basis for
+-- paying anyone.
+CREATE TABLE IF NOT EXISTS hint_apps (
+  src_domain INTEGER NOT NULL,
+  tx_hash TEXT NOT NULL,
+  app TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (src_domain, tx_hash)
+);
 CREATE TABLE IF NOT EXISTS cursors (
   chain_key TEXT PRIMARY KEY,
   block INTEGER NOT NULL,
@@ -234,6 +244,15 @@ export class Store {
       for (const r of rows) added += stmt.run({ event_account: null, ...r, now }).changes;
     })();
     return added;
+  }
+
+  /** The first label wins: a later hint for the same burn cannot relabel it. */
+  noteApp(srcDomain: number, txHash: string, app: string, now: number): void {
+    this.db.prepare("INSERT OR IGNORE INTO hint_apps (src_domain, tx_hash, app, at) VALUES (?, ?, ?, ?)").run(srcDomain, txHash, app, now);
+  }
+
+  appOf(srcDomain: number, txHash: string): string | undefined {
+    return (this.db.prepare("SELECT app FROM hint_apps WHERE src_domain = ? AND tx_hash = ?").get(srcDomain, txHash) as { app: string } | undefined)?.app;
   }
 
   get(srcDomain: number, txHash: string, logIndex: number): TransferRow | undefined {

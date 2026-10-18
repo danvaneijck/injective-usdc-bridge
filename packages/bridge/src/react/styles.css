@@ -69,6 +69,16 @@
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
+/* Inside a host's own card or modal: no card of its own, the host's width. */
+.iub.iub-bare {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
 :where(.iub) *,
 :where(.iub) *::before,
 :where(.iub) *::after {
@@ -1215,6 +1225,48 @@ button.iub-asset:active {
 .iub-chip svg {
   width: 12px;
   height: 12px;
+}
+
+/* ── Built-in Solana wallet ─────────────────────────────────────────────── */
+.iub-solaccount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  animation: iub-fade 0.2s ease;
+}
+.iub-wallet-face {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.iub-wallet-face img {
+  width: 100%;
+  height: 100%;
+  border-radius: 25%;
+}
+.iub-wallet-face-chain {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--iub-bg);
+}
+.iub-install {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.iub-install a {
+  text-decoration: none;
+}
+.iub-disconnect {
+  align-self: center;
+  margin: 4px 0 8px;
 }
 
 /* ── Tracking ──────────────────────────────────────────────────────────── */

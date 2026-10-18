@@ -364,7 +364,7 @@ Choice v2 look, themeable):
 | 0 | **Done**: core package, verified registry, BridgeReceiver, 30 TS + 27 Foundry tests. |
 | Gate | **Passed 2026-10-16.** $1 Injective to Base with forwarding (`npm run live-withdraw`): burn `0x9a156fc5…f09f` at 09:45:21Z, Circle's relayer `0xb756…5b5e` minted `0xcb42b1f0…b862` on Base at 09:45:31Z (10 s, 186k gas). 0.945948 USDC received after a 0.054052 forwarding fee. |
 | 1 | **Live.** bridge-service shadow-run on mainnet 2026-10-16: 6 h backfill on 16 chains, every lane healthy, completeness check matched all 41 Injective arrivals to indexed burns. Shadow at bridge-api.choice.exchange from 2026-10-16; `MODE=relay` with the keeper from 2026-10-16 22:25Z (receiver and relayer seeded 0.05 INJ each). |
-| 2 | **Widget live** on bridge.choice.exchange from 2026-10-16 22:26Z, smoke-tested in Chrome against production. Next: Choice v2 and the launchpad, replacing their jumper.xyz links. |
+| 2 | **Widget live** on bridge.choice.exchange from 2026-10-16 22:26Z, smoke-tested in Chrome against production. Embedding (0.1.0, 2026-10-18): `bare`, `defaultAmount`, `onSent`, `onDelivered`, `app` label, `builtInSolanaWallet`, a plain error for wallets that cannot leave Injective; published to npm. Choice v2 and the launchpad each get a `/bridge` page and a modal opened where a trade is short of USDC, replacing their jumper.xyz links. |
 | 3 | **Solana built 2026-10-17** (see Solana), with the Solana claim and the deposit refund. Next: HyperCore direct deposit via Circle's `CctpForwarder` on HyperEVM; a wrong recipient or caller there strands funds permanently, so it gets its own tests. |
 | 4 | Standalone site with `/tx/:domain/:hash` tracking pages; retire the v1 bridge UI. |
 
@@ -439,7 +439,10 @@ Both directions, built 2026-10-17 (Dan: both together, public RPC for now).
 
 ## Open
 
-- Choice v2 and the launchpad embed the widget.
+- Choice v2 and the launchpad embed the widget (0.1.0, review branches 2026-10-18).
+- Per-app counts: `hint_apps` holds the browser's label for each hinted burn;
+  nothing reads it yet beyond SQL. Never a basis for a fee: a per-app fee, if
+  one comes, rides in the burn's hook data on chain.
 - Record who minted each deposit (`minted_by` is "unknown" unless we relayed
   it; the mint transaction is now linked when found, its sender is not read).
 - WalletConnect on the site needs a Reown project id
