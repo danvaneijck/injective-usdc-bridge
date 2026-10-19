@@ -370,6 +370,45 @@ img.iub-logo {
      as a wallet connects or a toggle flips, and must never resize the panel. */
   height: 22px;
 }
+/* "From 0x12ab...cd34": the wallet beside the label, a pill when it can be
+   changed. Inside the head's fixed 22px, so it never resizes the panel. */
+.iub-side-who {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.iub-who {
+  display: inline-flex;
+  min-width: 0;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--iub-raised);
+  color: var(--iub-text);
+  font-family: var(--iub-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+button.iub-who {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button.iub-who:hover {
+  background: var(--iub-hover);
+}
+.iub-who svg {
+  width: 12px;
+  height: 12px;
+  color: var(--iub-muted);
+}
+.iub-who-name {
+  font-family: var(--iub-font);
+  font-weight: 600;
+}
 /* text-note: the label a well opens with, sentence case, muted. */
 .iub-label {
   color: var(--iub-muted);

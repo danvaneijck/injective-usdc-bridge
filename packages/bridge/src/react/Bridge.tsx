@@ -27,8 +27,10 @@ export function Bridge(props: BridgeProps) {
   const solana = useSolanaWiring(props);
   const raw = props.wallet.address;
   const address: Address | null = raw && isAddress(raw, { strict: false }) ? getAddress(raw) : null;
+  const rawSource = props.sourceWallet?.address;
+  const sourceAddress: Address | null = rawSource && isAddress(rawSource, { strict: false }) ? getAddress(rawSource) : null;
   const solAddress = solana.solanaWallet?.address ?? null;
-  const activity = useActivity(env, [address, solAddress].filter((a): a is string => a !== null));
+  const activity = useActivity(env, [address, sourceAddress, solAddress].filter((a): a is string => a !== null));
 
   // Landings, from Activity's poll and from the tracker's faster one.
   const [watch] = useState(() => new DeliveryWatch());
@@ -75,6 +77,8 @@ export function Bridge(props: BridgeProps) {
           address={address}
           provider={props.wallet.provider}
           onConnectWallet={props.onConnectWallet}
+          sourceWallet={sourceAddress ? { address: sourceAddress, provider: props.sourceWallet?.provider ?? null, label: props.sourceWallet?.label } : null}
+          onPickSourceWallet={props.onPickSourceWallet}
           solanaWallet={solana.solanaWallet}
           onConnectSolanaWallet={solana.onConnectSolanaWallet}
           onSent={(sent) => {

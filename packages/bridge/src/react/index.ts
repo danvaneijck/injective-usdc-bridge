@@ -9,6 +9,7 @@ export {
   DEFAULT_API_URL,
   type BridgeProps,
   type BridgeWallet,
+  type SourceWallet,
   type Eip1193Provider,
   type SentTransfer,
   type SolanaWallet,
