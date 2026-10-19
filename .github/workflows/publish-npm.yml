@@ -1,7 +1,10 @@
 name: publish-npm
 
-# Publishes packages/bridge to npm as `injective-usdc-bridge`, the way
-# trippy-mcp releases: a pushed tag, npm trusted publishing (OIDC), provenance.
+# Stages packages/bridge on npm as `injective-usdc-bridge`: a pushed tag, npm
+# trusted publishing (OIDC). The trusted publisher may only STAGE, so nothing
+# is public until a maintainer approves with 2FA:
+#   npm stage list injective-usdc-bridge
+#   npm stage approve <stage-id>        (or approve it on npmjs.com)
 #
 # Release: bump packages/bridge/package.json "version" in a PR, merge, then
 # tag the merge commit `bridge-v<version>` and push the tag. The tag must
@@ -10,8 +13,10 @@ name: publish-npm
 #
 # Auth is OIDC only: no npm token is stored anywhere. npmjs.com trusts this
 # repo and this workflow file (package Settings > Trusted Publisher > GitHub
-# Actions: danvaneijck / injective-usdc-bridge / publish-npm.yml). npm offers
-# that only for a package that already exists, so 0.1.0 was published by hand.
+# Actions: danvaneijck / injective-usdc-bridge / publish-npm.yml, permission
+# "npm stage publish"). npm offers that only for a package that already
+# exists, so 0.1.0 was published by hand; 0.1.1 too, before the publisher was
+# set to staging (a plain `npm publish` gets "OIDC permission denied").
 #
 # Runs only on a tag push (people with write access), never on a fork PR.
 # Actions are pinned to commits.
@@ -42,5 +47,10 @@ jobs:
           [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, package says $want"; exit 1; }
       - run: npm install -g npm@latest # trusted publishing needs npm >= 11.5.1
       - run: npm ci
-      # prepublishOnly typechecks, tests and builds the package first.
-      - run: npm publish -w packages/bridge # OIDC auth; provenance is automatic
+      # `npm stage` is unaware of workspaces and packs the current directory,
+      # so both steps run in the package. The build is explicit: dist/ is not
+      # committed, and a staged tarball without it would install empty.
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: packages/bridge
+      - run: npm stage publish
+        working-directory: packages/bridge
