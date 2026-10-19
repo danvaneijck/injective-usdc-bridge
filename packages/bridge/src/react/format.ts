@@ -5,7 +5,10 @@ import { USDC_DECIMALS } from "../constants.js";
 export function formatAmount(value: bigint, decimals: number, max = 2): string {
   const s = formatUnits(value, decimals);
   const [whole = "0", frac = ""] = s.split(".");
-  const cut = frac.slice(0, max).replace(/0+$/, "");
+  // A real amount below the shown precision ("0.001" at 2 decimals) shows its
+  // first digits rather than reading as "0".
+  const keep = whole === "0" && value > 0n && !/[1-9]/.test(frac.slice(0, max)) ? frac.search(/[1-9]/) + 2 : max;
+  const cut = frac.slice(0, keep).replace(/0+$/, "");
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return cut ? `${grouped}.${cut}` : grouped;
 }

@@ -99,7 +99,8 @@ Each one maps to a real incident in the v1 history.
 directions. 47/47 mainnet, 7/7 testnet.
 
 Carried from v1: Ethereum, Base, Arbitrum, OP, Polygon, Avalanche, Linea,
-Unichain, Sonic, World Chain, Solana. New: HyperEVM, Monad, Sei, Plasma, Ink.
+Unichain, Sonic, World Chain, Solana. New: HyperEVM, Monad, Sei, Plasma, Ink,
+Arc (2026-10-20; gas is USDC there, so a send keeps its gas back).
 
 Notes:
 
