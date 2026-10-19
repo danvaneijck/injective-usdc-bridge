@@ -66,6 +66,9 @@ export interface BridgeFormProps {
   address: Address | null;
   provider: Eip1193Provider | null;
   onConnectWallet?: (() => void) | undefined;
+  /** Signs deposits from EVM chains in place of `address`, when it has an address. */
+  sourceWallet?: { address: Address | null; provider: Eip1193Provider | null; label?: string | undefined } | null | undefined;
+  onPickSourceWallet?: (() => void) | undefined;
   solanaWallet: SolanaWallet | null;
   onConnectSolanaWallet?: (() => void) | undefined;
   onSent(sent: SentTransfer): void;
@@ -79,6 +82,8 @@ export function BridgeForm({
   address,
   provider,
   onConnectWallet,
+  sourceWallet,
+  onPickSourceWallet,
   solanaWallet,
   onConnectSolanaWallet,
   onSent,
@@ -122,8 +127,16 @@ export function BridgeForm({
   const fromSolana = source.kind === "solana";
   const toSolana = destination.kind === "solana";
   const solAddress = solanaWallet?.address ?? null;
+  // A deposit from an EVM chain signs with the host's source wallet when it
+  // gave one it can sign with; withdrawals always burn from the account on
+  // Injective. An address whose provider has not arrived yet is not one: the
+  // send would have nothing to sign with.
+  const other = sourceWallet?.address != null && sourceWallet.provider != null ? sourceWallet : null;
+  const fromOther = deposit && !fromSolana && other !== null;
+  const evmFrom = fromOther ? other!.address : address;
+  const evmProvider = fromOther ? other!.provider : provider;
   /** Who signs the burn: the Solana wallet for burns on Solana, else the EVM wallet. */
-  const sender = fromSolana ? solAddress : address;
+  const sender = fromSolana ? solAddress : evmFrom;
   const amount = parseUsdc(amountText);
   const speed: Speed = source.fastSource ? (speedChoice ?? "fast") : "standard";
 
@@ -140,23 +153,26 @@ export function BridgeForm({
             : null;
 
   const balance = useUsdcBalance(env, source, sender);
-  const balances = useUsdcBalances(env, address, solAddress);
+  // Where USDC sits to deposit from: the source wallet's chains when there is one.
+  const depositFrom = other?.address ?? address;
+  const balances = useUsdcBalances(env, depositFrom, solAddress);
 
   // Start a deposit where the wallet's USDC is, once per wallet, unless a
-  // chain was chosen or the current one already holds some.
+  // chain was chosen or the current one already holds some. A typed recipient
+  // stays: a deposit lands on Injective from any chain, and picking a source
+  // wallet half way through the form re-runs this.
   const preselectedFor = useRef<string | null>(null);
   useEffect(() => {
-    const who = `${address ?? ""}|${solAddress ?? ""}`;
+    const who = `${depositFrom ?? ""}|${solAddress ?? ""}`;
     if (chainChosen || !deposit || !balances.settled || preselectedFor.current === who) return;
     preselectedFor.current = who;
     const best = richestChain(balances.byChain, peer.key);
     if (best) {
       setPeerKey(best);
       setSpeedChoice(null);
-      setRecipientText(null);
     }
-  }, [address, solAddress, balances, chainChosen, deposit, peer.key]);
-  const gas = useGas(env, source, fromSolana ? null : address);
+  }, [depositFrom, solAddress, balances, chainChosen, deposit, peer.key]);
+  const gas = useGas(env, source, fromSolana ? null : evmFrom);
   const gasNote = gasShort(gas, source.nativeSymbol, source.name);
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
   const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
@@ -279,10 +295,10 @@ export function BridgeForm({
   }
 
   async function submitEvm() {
-    if (!provider || !address || !quote || !recipient || source.kind !== "evm") return;
+    if (!evmProvider || !evmFrom || !quote || !recipient || source.kind !== "evm") return;
     const client = env.clientFor(source);
     const spender = CCTP_CONTRACTS[env.network].tokenMessenger;
-    const allowance = await client.readContract({ address: source.usdc, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
+    const allowance = await client.readContract({ address: source.usdc, abi: erc20Abi, functionName: "allowance", args: [evmFrom, spender] });
     const plan = buildBurn({
       network: env.network,
       route: { source, destination },
@@ -292,20 +308,23 @@ export function BridgeForm({
       ...(wantDrop && drop && env.receiver ? { gasDrop: { receiver: env.receiver, maxDropFee: drop.dropFee } } : {}),
     });
     let hash: Hex;
-    if (plan.approve && (await canBatch(provider, address, source))) {
+    if (plan.approve && (await canBatch(evmProvider, evmFrom, source))) {
       // One confirmation for both, where the wallet batches them atomically.
       setBusy("sending");
-      hash = await sendBatch(provider, address, source, [plan.approve, plan.burn], () => setBusy("confirming"));
+      hash = await sendBatch(evmProvider, evmFrom, source, [plan.approve, plan.burn], () => setBusy("confirming"));
     } else {
       if (plan.approve) {
         setBusy("approving");
-        const approval = await sendCall(provider, address, source, client, plan.approve);
+        const approval = await sendCall(evmProvider, evmFrom, source, client, plan.approve);
         await client.waitForTransactionReceipt({ hash: approval, timeout: 180_000 });
       }
       setBusy("sending");
-      hash = await sendCall(provider, address, source, client, plan.burn);
+      hash = await sendCall(evmProvider, evmFrom, source, client, plan.burn);
     }
-    record(source.domain, hash, address);
+    record(source.domain, hash, evmFrom);
+    // Activity also follows the account, so a host that drops the source
+    // wallet afterwards still shows the transfer while it is in flight.
+    if (address && address.toLowerCase() !== evmFrom.toLowerCase()) env.journal.add({ domain: source.domain, txHash: hash, address: address.toLowerCase(), at: Date.now() });
     setAmountText("");
     onSent(sentOf(source.domain, hash, quote, recipient));
   }
@@ -325,7 +344,7 @@ export function BridgeForm({
   let action: { label: string; enabled: boolean; run?: () => void };
   if (fromSolana && !solAddress) {
     action = { label: "Connect a Solana wallet", enabled: Boolean(onConnectSolanaWallet), ...(onConnectSolanaWallet ? { run: onConnectSolanaWallet } : {}) };
-  } else if (!fromSolana && !address) {
+  } else if (!fromSolana && !evmFrom) {
     action = { label: "Connect Wallet", enabled: Boolean(onConnectWallet), ...(onConnectWallet ? { run: onConnectWallet } : {}) };
   } else if (busy) action = { label: BUSY_LABEL[busy](source.name), enabled: false };
   else if (amount === null || amount === 0n) action = { label: "Enter an amount", enabled: false };
@@ -402,6 +421,17 @@ export function BridgeForm({
           chain={source}
           locked={!deposit}
           onPick={() => setPicking(true)}
+          who={
+            sender
+              ? {
+                  address: sender,
+                  name: fromOther ? sourceWallet?.label : undefined,
+                  // Only a deposit from an EVM chain can come from another wallet.
+                  onClick: deposit && !fromSolana && onPickSourceWallet ? onPickSourceWallet : undefined,
+                  action: "Change the wallet to send from",
+                }
+              : null
+          }
           extra={
             sender && balance !== null ? (
               <span className="iub-balance">
@@ -439,6 +469,16 @@ export function BridgeForm({
           chain={destination}
           locked={deposit}
           onPick={() => setPicking(true)}
+          who={
+            recipientText === null && defaultRecipient && sender
+              ? {
+                  address: defaultRecipient,
+                  title: deposit ? `${defaultRecipient}\n${toInjAddress(defaultRecipient as Address)}` : undefined,
+                  onClick: () => setRecipientText(""),
+                  action: "Send to another address",
+                }
+              : null
+          }
           // In the head row, opposite "To", so turning the gas drop on adds no height.
           extra={wantDrop && drop ? <span className="iub-plus">+ {formatEther(drop.dropWei)} INJ for gas</span> : null}
         >
@@ -633,11 +673,14 @@ function Side({
   chain,
   locked,
   onPick,
+  who,
   extra,
   className,
   children,
 }: {
   label: string;
+  /** Beside the label: the wallet it comes from or goes to, a button when it can change. */
+  who?: { address: string; name?: string | undefined; title?: string | undefined; onClick?: (() => void) | undefined; action: string } | null;
   chain: Chain;
   locked: boolean;
   onPick: () => void;
@@ -663,7 +706,22 @@ function Side({
   return (
     <div className={className ? `iub-side ${className}` : "iub-side"}>
       <div className="iub-side-head">
-        <span className="iub-label">{label}</span>
+        <span className="iub-side-who">
+          <span className="iub-label">{label}</span>
+          {who ? (
+            who.onClick ? (
+              <button type="button" className="iub-who" onClick={who.onClick} title={who.title ?? who.address} aria-label={`${who.action}, now ${who.address}`}>
+                {who.name ? <span className="iub-who-name">{who.name}</span> : null}
+                {shortAddress(who.address)}
+                <IconChevron />
+              </button>
+            ) : (
+              <span className="iub-who" title={who.title ?? who.address}>
+                {shortAddress(who.address)}
+              </span>
+            )
+          ) : null}
+        </span>
         {extra}
       </div>
       <div className="iub-amount">
@@ -703,23 +761,19 @@ function Recipient({
   connect: { label: string; run: () => void } | null;
 }) {
   if (hidden && text === null) return null;
-  // A well like From and To: "Send to" and its one action on top, the address
-  // or the field filling the row below. Both states share the frame, so going
-  // from one to the other never moves anything else on the form.
-  const editing = !(text === null && fallback);
+  // The connected wallet receiving is shown in To's head; this well is the
+  // field for another address, there only while one is being entered.
+  if (text === null && fallback) return null;
   const value = text ?? "";
-  const action = !editing
-    ? { label: "Change", tint: false, run: () => onChange("") }
-    : fallback
-      ? { label: "Use my wallet", tint: true, run: () => onChange(null) }
-      : connect
-        ? { label: connect.label, tint: true, run: connect.run }
-        : null;
-  const shown = !editing && fallback ? (deposit ? toInjAddress(fallback as Address) : fallback) : null;
+  const action = fallback
+    ? { label: "Use my wallet", tint: true, run: () => onChange(null) }
+    : connect
+      ? { label: connect.label, tint: true, run: connect.run }
+      : null;
   return (
-    <div className={editing && !valid && value !== "" ? "iub-recipient iub-recipient-bad" : "iub-recipient"}>
+    <div className={!valid && value !== "" ? "iub-recipient iub-recipient-bad" : "iub-recipient"}>
       <div className="iub-recipient-head">
-        <span className="iub-label">{shown ? "Send to your wallet" : "Send to"}</span>
+        <span className="iub-label">Send to</span>
         {action ? (
           <button type="button" className={action.tint ? "iub-action iub-action-tint" : "iub-action"} onClick={action.run}>
             {action.label}
@@ -728,34 +782,25 @@ function Recipient({
       </div>
       <div className="iub-recipient-row">
         <ChainLogo chain={destination.key} name={destination.name} size={26} />
-        {shown ? (
-          <span className="iub-recipient-address" title={shown}>
-            {midAddress(shown)}
-          </span>
-        ) : (
-          <input
-            className="iub-recipient-input"
-            placeholder={
-              deposit
-                ? "Injective address, inj1... or 0x..."
-                : destination.kind === "solana"
-                  ? "Solana wallet address"
-                  : `0x... address on ${destination.name}`
-            }
-            aria-label={`Recipient on ${destination.name}`}
-            aria-invalid={!valid && value !== ""}
-            value={value}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => onChange(e.target.value)}
-          />
-        )}
+        <input
+          // Opened from To's address: straight into typing.
+          autoFocus={text === ""}
+          className="iub-recipient-input"
+          placeholder={
+            deposit
+              ? "Injective address, inj1... or 0x..."
+              : destination.kind === "solana"
+                ? "Solana wallet address"
+                : `0x... address on ${destination.name}`
+          }
+          aria-label={`Recipient on ${destination.name}`}
+          aria-invalid={!valid && value !== ""}
+          value={value}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => onChange(e.target.value)}
+        />
       </div>
     </div>
   );
-}
-
-/** More of an address than shortAddress, for a row that has the room: the ends people check. */
-function midAddress(a: string): string {
-  return a.length > 24 ? `${a.slice(0, 12)}…${a.slice(-8)}` : a;
 }

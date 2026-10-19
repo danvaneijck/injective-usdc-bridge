@@ -20,6 +20,12 @@ export interface BridgeWallet {
   provider: Eip1193Provider | null;
 }
 
+/** A wallet to send deposits from (BridgeProps.sourceWallet). */
+export interface SourceWallet extends BridgeWallet {
+  /** What the host calls it ("MetaMask"), shown beside the address. */
+  label?: string;
+}
+
 /**
  * The host's Solana wallet, for transfers from Solana. Shaped after Wallet
  * Standard's solana:signAndSendTransaction / solana:signTransaction, which
@@ -88,6 +94,18 @@ export interface BridgeProps extends WidgetCommonProps {
   wallet: BridgeWallet;
   /** Opens the host's wallet picker. Without it the button only says to connect. */
   onConnectWallet?: () => void;
+  /**
+   * Another EVM wallet to send deposits from, for USDC held somewhere other
+   * than the account (`wallet`). It signs the burn of a deposit from an EVM
+   * chain and nothing else: `wallet` stays the default recipient of deposits
+   * and signs withdrawals. Null or no address: deposits come from `wallet`.
+   */
+  sourceWallet?: SourceWallet | null;
+  /**
+   * Opens the host's picker for `sourceWallet`. With it, the sending address
+   * in From's head is a button that calls this, on deposits from EVM chains.
+   */
+  onPickSourceWallet?: () => void;
   /** Peer chain the form opens on. Without it, deposits start where the wallet holds USDC. */
   defaultChain?: string;
   defaultDirection?: Direction;

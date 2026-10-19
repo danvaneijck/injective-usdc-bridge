@@ -283,14 +283,15 @@ await check("quotes a withdrawal to Solana, delivered by Circle", async () => {
   // a withdrawal sends from Injective: connect the EVM stand-in too.
   await sp.locator(".iub-primary", { hasText: "Connect Wallet" }).click();
   await sp.getByRole("button", { name: "Smoke Wallet" }).click();
-  await sp.getByText("Send to your wallet").waitFor({ timeout: 10_000 });
+  // The receiving wallet sits in To's head, a button that opens "Send to".
+  await sp.getByRole("button", { name: /^Send to another address/ }).waitFor({ timeout: 10_000 });
   await quoted(sp);
   await sp.waitForTimeout(600);
   await sp.screenshot({ path: `${OUT}/10-solana-withdraw.png` });
 });
 
 await check("refuses a token account typed as the Solana recipient", async () => {
-  await sp.locator(".iub-recipient").getByRole("button", { name: "Change" }).click();
+  await sp.getByRole("button", { name: /^Send to another address/ }).click();
   // The real burn spent from this account: SOL_WALLET's USDC token account.
   await sp.getByLabel("Recipient on Solana").fill("5NhytzwGCMAAYwgJZr1yJpaSYVqUQttWHGu3MpV4o38n");
   await sp.getByText(/That is a token account, not a wallet/).waitFor({ timeout: 15_000 });

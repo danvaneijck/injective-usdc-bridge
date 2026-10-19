@@ -27,9 +27,10 @@ import "injective-usdc-bridge/react/styles.css";
 ```
 
 Any wallet library works: the widget needs only an address and an EIP-1193
-provider. It switches the wallet between chains itself; a wallet that only
-works on Injective (Keplr's or Leap's EVM side) can withdraw, and is told so
-plainly if it tries a deposit from another chain.
+provider. It switches the wallet between chains itself, and asks the wallet to
+add a chain it does not know yet. A wallet that only works on Injective (some
+embedded wallets) can withdraw, and is told so plainly if it tries a deposit
+from another chain.
 
 ### Props
 
@@ -37,6 +38,7 @@ plainly if it tries a deposit from another chain.
 | --- | --- |
 | `wallet` | `{ address, provider }`, both `null` while disconnected. Re-render with the new address on an account change. |
 | `onConnectWallet` | Opens the host's wallet picker. |
+| `sourceWallet`, `onPickSourceWallet` | Another EVM wallet (`{ address, provider, label? }`) to send deposits from, when the user's USDC is not in the account wallet. It signs only the burn of a deposit from an EVM chain: `wallet` stays the default recipient and signs withdrawals. With `onPickSourceWallet`, the sending address in From's head is a button that opens the host's picker. |
 | `solanaWallet`, `onConnectSolanaWallet` | A host-managed Solana wallet: its address and a Wallet Standard style signer (bytes in, bytes or signature out). |
 | `builtInSolanaWallet` | For hosts with no Solana code: the widget lists Wallet Standard wallets (Phantom, Solflare, Backpack...) in its own sheet and connects them. Ignored when `solanaWallet` is passed. |
 | `defaultDirection` | `"deposit"` (to Injective, the default) or `"withdraw"`. |
