@@ -1,6 +1,6 @@
 {
   "name": "injective-usdc-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native USDC bridge to and from Injective over Circle CCTP V2: chain registry, burn builders, attestation client and delivery status.",
   "license": "MIT",
   "repository": {
@@ -71,7 +71,7 @@
     "@noble/curves": "^1.9.1",
     "@noble/hashes": "^1.8.0",
     "@scure/base": "^1.2.6",
-    "viem": "^2.57.7"
+    "viem": "^2.53.0"
   },
   "devDependencies": {
     "@solana/web3.js": "1.98.4",

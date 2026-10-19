@@ -128,10 +128,13 @@ export function BridgeForm({
   const toSolana = destination.kind === "solana";
   const solAddress = solanaWallet?.address ?? null;
   // A deposit from an EVM chain signs with the host's source wallet when it
-  // gave one; withdrawals always burn from the account on Injective.
-  const fromOther = deposit && !fromSolana && sourceWallet?.address != null;
-  const evmFrom = fromOther ? sourceWallet!.address : address;
-  const evmProvider = fromOther ? (sourceWallet!.provider ?? null) : provider;
+  // gave one it can sign with; withdrawals always burn from the account on
+  // Injective. An address whose provider has not arrived yet is not one: the
+  // send would have nothing to sign with.
+  const other = sourceWallet?.address != null && sourceWallet.provider != null ? sourceWallet : null;
+  const fromOther = deposit && !fromSolana && other !== null;
+  const evmFrom = fromOther ? other!.address : address;
+  const evmProvider = fromOther ? other!.provider : provider;
   /** Who signs the burn: the Solana wallet for burns on Solana, else the EVM wallet. */
   const sender = fromSolana ? solAddress : evmFrom;
   const amount = parseUsdc(amountText);
@@ -151,11 +154,13 @@ export function BridgeForm({
 
   const balance = useUsdcBalance(env, source, sender);
   // Where USDC sits to deposit from: the source wallet's chains when there is one.
-  const depositFrom = sourceWallet?.address ?? address;
+  const depositFrom = other?.address ?? address;
   const balances = useUsdcBalances(env, depositFrom, solAddress);
 
   // Start a deposit where the wallet's USDC is, once per wallet, unless a
-  // chain was chosen or the current one already holds some.
+  // chain was chosen or the current one already holds some. A typed recipient
+  // stays: a deposit lands on Injective from any chain, and picking a source
+  // wallet half way through the form re-runs this.
   const preselectedFor = useRef<string | null>(null);
   useEffect(() => {
     const who = `${depositFrom ?? ""}|${solAddress ?? ""}`;
@@ -165,7 +170,6 @@ export function BridgeForm({
     if (best) {
       setPeerKey(best);
       setSpeedChoice(null);
-      setRecipientText(null);
     }
   }, [depositFrom, solAddress, balances, chainChosen, deposit, peer.key]);
   const gas = useGas(env, source, fromSolana ? null : evmFrom);
@@ -318,6 +322,9 @@ export function BridgeForm({
       hash = await sendCall(evmProvider, evmFrom, source, client, plan.burn);
     }
     record(source.domain, hash, evmFrom);
+    // Activity also follows the account, so a host that drops the source
+    // wallet afterwards still shows the transfer while it is in flight.
+    if (address && address.toLowerCase() !== evmFrom.toLowerCase()) env.journal.add({ domain: source.domain, txHash: hash, address: address.toLowerCase(), at: Date.now() });
     setAmountText("");
     onSent(sentOf(source.domain, hash, quote, recipient));
   }

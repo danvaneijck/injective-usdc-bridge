@@ -27,9 +27,10 @@ import "injective-usdc-bridge/react/styles.css";
 ```
 
 Any wallet library works: the widget needs only an address and an EIP-1193
-provider. It switches the wallet between chains itself; a wallet that only
-works on Injective (Keplr's or Leap's EVM side) can withdraw, and is told so
-plainly if it tries a deposit from another chain.
+provider. It switches the wallet between chains itself, and asks the wallet to
+add a chain it does not know yet. A wallet that only works on Injective (some
+embedded wallets) can withdraw, and is told so plainly if it tries a deposit
+from another chain.
 
 ### Props
 

@@ -96,7 +96,7 @@ export function Bridge(props: BridgeProps) {
         <div className="iub-view" key="activity">
           <Activity
             env={env}
-            connected={address !== null || solAddress !== null}
+            connected={address !== null || sourceAddress !== null || solAddress !== null}
             items={activity.items}
             loading={activity.loading}
             error={activity.error}
