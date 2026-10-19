@@ -12,7 +12,7 @@ import { expectedAttestMs } from "../timing.js";
 import { ChainLogo, UsdcLogo } from "./ChainLogo.js";
 import { ChainPicker } from "./ChainPicker.js";
 import { formatAmount, formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, shortAddress } from "./format.js";
-import { CLAIM_GAS_UNITS, formatGasAmount, gasShort } from "./gas.js";
+import { CLAIM_GAS_UNITS, formatGasAmount, gasShort, usdcGasReserve } from "./gas.js";
 import {
   type Env,
   richestChain,
@@ -174,6 +174,10 @@ export function BridgeForm({
   }, [depositFrom, solAddress, balances, chainChosen, deposit, peer.key]);
   const gas = useGas(env, source, fromSolana ? null : evmFrom);
   const gasNote = gasShort(gas, source.nativeSymbol, source.name);
+  // Where gas is USDC (Arc) the balance pays for the send too: Max and the
+  // balance check leave its gas behind.
+  const gasReserve = usdcGasReserve(source, gas);
+  const spendable = balance === null ? null : balance > gasReserve ? balance - gasReserve : 0n;
   const injBalance = useInjBalance(env, deposit ? (recipient as Address | null) : null);
   const solRecipient = useSolanaRecipient(env, destination, toSolana ? recipient : null);
   const needsAccount = toSolana && solRecipient?.ok === true && !solRecipient.tokenAccountExists;
@@ -353,6 +357,9 @@ export function BridgeForm({
   } else if (recipientProblem) action = { label: "Check the recipient", enabled: false };
   else if (toSolana && solRecipient === null && !held) action = { label: "Checking the recipient", enabled: false };
   else if (balance !== null && amount > balance) action = { label: `Not enough USDC on ${source.name}`, enabled: false };
+  else if (spendable !== null && amount > spendable) {
+    action = { label: `Leave ${formatUsdc(gasReserve)} USDC for gas on ${source.name}`, enabled: false };
+  }
   else if (fromSolana && solBalance !== null && solBalance < solNeeded) action = { label: "Not enough SOL for the network fee", enabled: false };
   else if (quoteError) action = { label: quoteError, enabled: false };
   else if (!fresh && !held) action = { label: "Getting a quote", enabled: false };
@@ -437,7 +444,7 @@ export function BridgeForm({
               <span className="iub-balance">
                 <span className="iub-muted">Balance</span> {formatUsdc(balance)}
                 {balance > 0n ? (
-                  <button type="button" className="iub-max" onClick={() => setAmountText(formatUnits(balance, USDC_DECIMALS))}>
+                  <button type="button" className="iub-max" onClick={() => setAmountText(formatUnits(spendable ?? balance, USDC_DECIMALS))}>
                     Max
                   </button>
                 ) : null}

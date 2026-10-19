@@ -15,7 +15,7 @@ embedded in any Injective app.
 
 Injective on one end of every route. The other end: Ethereum, Base, Arbitrum,
 OP Mainnet, Polygon, Avalanche, Linea, Unichain, Sonic, World Chain, HyperEVM,
-Monad, Sei, Plasma, Ink, Solana.
+Monad, Sei, Plasma, Ink, Arc, Solana.
 
 ```sh
 cd packages/bridge

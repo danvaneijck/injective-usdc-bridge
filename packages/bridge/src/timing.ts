@@ -7,10 +7,17 @@ import { FINALITY, type Network } from "./constants.js";
  */
 const L1_FINALITY = new Set(["ethereum", "base", "arbitrum", "optimism", "linea", "unichain", "worldchain", "ink"]);
 
+/**
+ * Chains final in one block, where Standard attests as fast as Fast does
+ * elsewhere (Circle lists Arc at ~0.5 s).
+ */
+const ONE_BLOCK_FINALITY = new Set(["arc"]);
+
 /** How long Circle normally takes to attest a burn from this chain. */
 export function expectedAttestMs(network: Network, srcDomain: number, minFinality: number): number {
   const chain = chainByDomain(network, srcDomain);
   if (minFinality <= FINALITY.fast && chain?.fastSource) return 30_000;
+  if (chain && ONE_BLOCK_FINALITY.has(chain.key)) return 30_000;
   if (chain && L1_FINALITY.has(chain.key)) return 20 * 60_000;
   return 2 * 60_000;
 }

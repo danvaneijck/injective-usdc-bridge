@@ -1,6 +1,6 @@
 {
   "name": "injective-usdc-bridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Native USDC bridge to and from Injective over Circle CCTP V2: chain registry, burn builders, attestation client and delivery status.",
   "license": "MIT",
   "repository": {

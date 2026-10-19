@@ -5,7 +5,7 @@ import { sortByBalance } from "../src/react/ChainPicker.js";
 import { formatDuration, formatUsdc, parseUsdc, sanitizeAmountInput, timeAgo } from "../src/react/format.js";
 import { richestChain } from "../src/react/hooks.js";
 import { parseLookup } from "../src/react/lookup.js";
-import { formatGasAmount, gasNeed, gasShort } from "../src/react/gas.js";
+import { formatGasAmount, gasNeed, gasShort, usdcGasReserve } from "../src/react/gas.js";
 import { Journal } from "../src/react/journal.js";
 import { CLAIM_AFTER_MS, progressOf } from "../src/react/progress.js";
 import { refundState } from "../src/react/refunds.js";
@@ -14,8 +14,9 @@ import { DeliveryWatch } from "../src/react/delivered.js";
 import { APP_RE } from "../src/react/api.js";
 import { rootClass } from "../src/react/TransferStatus.js";
 import { ChainSwitchError, ensureChain, friendlyError } from "../src/react/wallet.js";
-import { injective, peers } from "../src/chains.js";
+import { chainByDomain, chainByKey, injective, peers } from "../src/chains.js";
 import { toEvmAddress, toInjAddress } from "../src/address.js";
+import { expectedAttestMs } from "../src/timing.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00Z");
 
@@ -356,5 +357,41 @@ describe("host embedding", () => {
 
   it("does nothing when the wallet is already there", async () => {
     await expect(ensureChain(wallet(() => Promise.reject(new Error("no switch expected"))), injective("mainnet"))).resolves.toBeUndefined();
+  });
+});
+
+describe("chains whose gas is USDC", () => {
+  const arc = chainByKey("mainnet", "arc")!;
+  const base = chainByKey("mainnet", "base")!;
+
+  it("expects Arc's Standard attestation in seconds, not minutes", () => {
+    expect(expectedAttestMs("mainnet", 26, 2000)).toBe(30_000);
+    expect(expectedAttestMs("mainnet", 7, 2000)).toBe(120_000);
+  });
+
+  it("lists Arc as Circle's domain 26, paying gas in USDC", () => {
+    expect(chainByDomain("mainnet", 26)?.key).toBe("arc");
+    expect(arc.kind === "evm" && arc.chainId === 5042 && arc.gasIsUsdc).toBe(true);
+    expect(peers("mainnet").some((c) => c.key === "arc")).toBe(true);
+  });
+
+  it("keeps a send's gas back from the balance there, in whole cents", () => {
+    // 600k gas at 20 gwei with 20% headroom: 0.0144 USDC, kept as 0.02.
+    expect(usdcGasReserve(arc, { need: gasNeed(20_000_000_000n) })).toBe(20_000n);
+    expect(usdcGasReserve(arc, { need: 10n ** 16n })).toBe(10_000n);
+    expect(usdcGasReserve(arc, null)).toBe(50_000n);
+    expect(usdcGasReserve(base, { need: 10n ** 18n })).toBe(0n);
+    expect(usdcGasReserve(base, null)).toBe(0n);
+  });
+});
+
+describe("amounts under a cent", () => {
+  it("show their digits instead of reading as 0", () => {
+    expect(formatUsdc(1_000n)).toBe("0.001");
+    expect(formatUsdc(5n)).toBe("0.000005");
+    expect(formatUsdc(0n)).toBe("0");
+    expect(formatUsdc(500_000n)).toBe("0.50");
+    expect(formatUsdc(1_234_567n)).toBe("1.23");
+    expect(formatUsdc(1_000_001_000n)).toBe("1,000");
   });
 });

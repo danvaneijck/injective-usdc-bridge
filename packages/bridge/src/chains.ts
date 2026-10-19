@@ -57,6 +57,11 @@ export interface EvmChain extends ChainBase {
   minPriorityFeeWei?: bigint;
   /** Gas limit for receiveMessage where estimates run short (Polygon ~193k). */
   receiveGasLimit?: bigint;
+  /**
+   * Gas is paid in USDC (Arc). The native balance (18 decimals) and the USDC
+   * token (6 decimals) are one sum, so a send must leave its own gas behind.
+   */
+  gasIsUsdc?: boolean;
 }
 
 export interface SolanaChain extends ChainBase {
@@ -215,6 +220,35 @@ const MAINNET: readonly Chain[] = [
     explorerTx: "https://optimistic.etherscan.io/tx/{hash}",
     fastSource: true,
     forwarding: true,
+  }),
+  evm({
+    // Circle's own chain, live on CCTP (measured 2026-10-20: $100k in and $42k
+    // out of Injective in four days, before it was listed here). Gas is USDC.
+    key: "arc",
+    name: "Arc",
+    domain: 26,
+    chainId: 5042,
+    usdc: "0x3600000000000000000000000000000000000000",
+    nativeSymbol: "USDC",
+    blockTimeMs: 500,
+    rpcUrls: [
+      "https://rpc.mainnet.arc.io",
+      "https://rpc.quicknode.mainnet.arc.io",
+      "https://rpc.blockdaemon.mainnet.arc.io",
+    ],
+    // Measured 2026-10-20: the first two answer up to 9,999 blocks and refuse
+    // 10,000 ("requested range too large"); Blockdaemon takes 100,000 and caps
+    // results. rpc.drpc.mainnet.arc.io answers 400 to every getLogs.
+    logRpcs: [
+      { url: "https://rpc.mainnet.arc.io", span: 9_000 },
+      { url: "https://rpc.blockdaemon.mainnet.arc.io", span: 50_000 },
+      { url: "https://rpc.quicknode.mainnet.arc.io", span: 9_000 },
+    ],
+    explorerTx: "https://explorer.arc.io/tx/{hash}",
+    // Not a Fast Transfer source; Standard attests in ~0.5 s (one block).
+    fastSource: false,
+    forwarding: true,
+    gasIsUsdc: true,
   }),
   evm({
     key: "polygon",

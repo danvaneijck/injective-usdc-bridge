@@ -1,4 +1,5 @@
 import { formatUnits } from "viem";
+import type { Chain } from "../chains.js";
 
 /**
  * Gas for a send from an EVM chain: approve plus burn. Measured on Injective
@@ -8,6 +9,22 @@ import { formatUnits } from "viem";
 export const SEND_GAS_UNITS = 600_000n;
 /** A claim on the destination: receiveMessage, ~190k on Polygon (the heaviest outside Injective). */
 export const CLAIM_GAS_UNITS = 250_000n;
+
+/** What a send keeps back for gas where gas is USDC and the fee is not known yet. */
+const USDC_GAS_FALLBACK = 50_000n;
+
+/**
+ * USDC base units a send must leave behind for its own gas: on a chain whose
+ * gas is USDC (Arc) the native `need` (18 decimals) in USDC, rounded up to a
+ * whole cent so the form can name it exactly; 0.05 USDC until the fee is
+ * known; 0 everywhere else.
+ */
+export function usdcGasReserve(chain: Chain, gas: { need: bigint } | null): bigint {
+  if (chain.kind !== "evm" || !chain.gasIsUsdc) return 0n;
+  if (!gas) return USDC_GAS_FALLBACK;
+  const cents = (gas.need + 10n ** 16n - 1n) / 10n ** 16n;
+  return cents * 10_000n;
+}
 
 /** Native token `units` of gas cost at `feePerGas`, with 20% headroom. */
 export function gasNeed(feePerGas: bigint, units: bigint = SEND_GAS_UNITS): bigint {
