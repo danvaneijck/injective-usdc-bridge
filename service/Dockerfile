@@ -1,5 +1,5 @@
 # Build from the repo root:  docker build -f service/Dockerfile -t injective-usdc-bridge-service .
-FROM node:24-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
 # better-sqlite3 compiles from source when no prebuilt binary matches this Node.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -17,7 +17,7 @@ RUN npm run build -w injective-usdc-bridge \
     && npm run build -w injective-usdc-bridge-site \
     && npm prune --omit=dev --no-audit --no-fund
 
-FROM node:24-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production DB_PATH=/data/bridge.sqlite PORT=8787 SITE_DIR=/app/apps/site/dist
 COPY --from=build /app /app
