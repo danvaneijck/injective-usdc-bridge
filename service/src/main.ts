@@ -131,6 +131,7 @@ const relayer = new Relayer({
   bridgeReceiver: config.bridgeReceiver,
   depositGraceSec: config.depositGraceSec,
   legacyGraceSec: config.legacyGraceSec,
+  minRelayPlain: config.minRelayPlain,
   isNonceUsed: reader.isNonceUsed,
   log,
   now,
@@ -180,6 +181,7 @@ const api = createApi({
   store,
   network: config.network,
   health,
+  log,
   bridgeReceiver: config.bridgeReceiver,
   ingest: async (domain, txHash) => {
     const chain = chainByDomain(config.network, domain);

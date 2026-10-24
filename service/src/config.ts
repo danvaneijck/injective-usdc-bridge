@@ -23,6 +23,8 @@ export interface ServiceConfig {
   depositGraceSec: number;
   /** Wait before relaying a burn pinned to a v1 receiver (v1's backend relays those). */
   legacyGraceSec: number;
+  /** Plain deposits below this (USDC base units) are left for the depositor to mint: dust costs more gas than it moves. */
+  minRelayPlain: bigint;
   /** Relayer INJ balance below which /health reports low; under the keeper's refill mark. */
   relayerLowInj: number;
   irisRps: number;
@@ -152,6 +154,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     startLookbackSec: Number(env.START_LOOKBACK_SEC ?? 6 * 3600),
     depositGraceSec: Number(env.DEPOSIT_GRACE_SEC ?? 15),
     legacyGraceSec: Number(env.LEGACY_GRACE_SEC ?? 120),
+    minRelayPlain: parseUnits(env.MIN_RELAY_PLAIN_USDC ?? "0.10", 6),
     relayerLowInj: Number(env.RELAYER_LOW_INJ ?? 0.02),
     irisRps: Number(env.IRIS_RPS ?? 5),
     rpcOverrides,
