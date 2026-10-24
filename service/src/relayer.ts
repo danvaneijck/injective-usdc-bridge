@@ -22,6 +22,7 @@ const MAX_ATTEMPTS = 8;
  */
 const RELAY_GAS_FLOOR = 800_000n;
 const SHADOW_NOTE = "shadow: would relay";
+const DUST_NOTE = "below the relay floor: left for self-mint";
 
 export interface RelayerDeps {
   store: Store;
@@ -33,6 +34,8 @@ export interface RelayerDeps {
   bridgeReceiver?: Address;
   depositGraceSec: number;
   legacyGraceSec: number;
+  /** Plain deposits below this (base units) are never relayed. 0n relays everything. */
+  minRelayPlain?: bigint;
   isNonceUsed: (domain: number, nonce: Hex) => Promise<boolean>;
   log: Logger;
   now: () => number;
@@ -92,6 +95,12 @@ export class Relayer {
         continue;
       }
       if (row.relay_attempts >= MAX_ATTEMPTS) continue;
+      // Anyone can burn 1 micro-USDC to Injective with no destination caller, many
+      // per tx; relaying each would spend more INJ than it moves.
+      if (row.kind === "plain" && BigInt(row.amount) < (this.d.minRelayPlain ?? 0n)) {
+        this.d.store.update(row, { last_error: DUST_NOTE, next_relay_at: Number.MAX_SAFE_INTEGER }, now);
+        continue;
+      }
       acted++;
       await this.relayOne(row);
     }

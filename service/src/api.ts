@@ -1,10 +1,11 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Address } from "viem";
 import { base58 } from "@scure/base";
 import { type Network, chainByDomain, isSolanaAddress, toEvmAddress } from "injective-usdc-bridge";
 import type { Store } from "./db.js";
 import type { Health } from "./health.js";
+import type { Logger } from "./log.js";
 import { serveSite } from "./site.js";
 import { toView } from "./view.js";
 
@@ -19,12 +20,22 @@ export interface ApiDeps {
   ingestAnywhere?: (txHash: string) => Promise<void>;
   /** The built site (apps/site/dist), served beside the API when set. */
   siteDir?: string;
+  log?: Logger;
 }
 
 const TX_RE = /^0x[0-9a-fA-F]{64}$/;
 /** An app label on a hint; anything else is dropped, the hint still counts. */
 const APP_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const RECENT_HINT_MS = 30_000;
+/** Lookups of a hash we have not stored fan out to every chain's RPC: per client, per minute. */
+const INGESTS_PER_MINUTE = 30;
+/** Bound on the per-key maps below (hash debounce, per-client counts). */
+const MAX_TRACKED = 10_000;
+
+/** The client: the origin only accepts Cloudflare, which sets CF-Connecting-IP itself. */
+function clientKey(c: Context): string {
+  return c.req.header("cf-connecting-ip")?.trim() || c.req.header("x-real-ip")?.trim() || "unknown";
+}
 
 /**
  * 0x or inj1 (same 20 bytes on Injective) to lowercase 0x; a Solana wallet
@@ -55,6 +66,31 @@ function isSolanaSignature(tx: string): boolean {
 export function createApi(d: ApiDeps): Hono {
   const app = new Hono();
   const recentHints = new Map<string, number>();
+  const ingests = new Map<string, { since: number; n: number }>();
+  const tooMany = (c: Context) => c.json({ error: "too many lookups, try again in a minute" }, 429);
+
+  /** True when this client may start another chain lookup this minute. */
+  const mayIngest = (c: Context): boolean => {
+    const now = Date.now();
+    if (ingests.size >= MAX_TRACKED) ingests.clear();
+    const key = clientKey(c);
+    const w = ingests.get(key);
+    if (!w || now - w.since >= 60_000) {
+      ingests.set(key, { since: now, n: 1 });
+      return true;
+    }
+    if (w.n >= INGESTS_PER_MINUTE) return false;
+    w.n++;
+    return true;
+  };
+
+  const noteHint = (key: string, now: number) => {
+    if (recentHints.size >= MAX_TRACKED) {
+      for (const [k, at] of recentHints) if (at <= now - RECENT_HINT_MS) recentHints.delete(k);
+      if (recentHints.size >= MAX_TRACKED) recentHints.clear();
+    }
+    recentHints.set(key, now);
+  };
   const view = (rows: Parameters<typeof toView>[0][]) => rows.map((r) => toView(r, d.network, d.bridgeReceiver));
 
   app.use("*", cors());
@@ -74,7 +110,8 @@ export function createApi(d: ApiDeps): Hono {
       let rows = d.store.byTxAnyDomain(tx);
       const key = `any:${tx}`;
       if (rows.length === 0 && d.ingestAnywhere && (recentHints.get(key) ?? 0) <= Date.now() - RECENT_HINT_MS) {
-        recentHints.set(key, Date.now());
+        if (!mayIngest(c)) return tooMany(c);
+        noteHint(key, Date.now());
         await d.ingestAnywhere(tx);
         rows = d.store.byTxAnyDomain(tx);
       }
@@ -92,12 +129,14 @@ export function createApi(d: ApiDeps): Hono {
     });
   });
 
-  const lookup = async (domain: number, tx: string, force: boolean) => {
+  /** The stored rows for a burn, ingesting it first when needed; null when this client is over its limit. */
+  const lookup = async (c: Context, domain: number, tx: string, force: boolean) => {
     let rows = d.store.byTx(domain, tx);
     const key = `${domain}:${tx}`;
     const recently = (recentHints.get(key) ?? 0) > Date.now() - RECENT_HINT_MS;
     if ((rows.length === 0 || force) && !recently) {
-      recentHints.set(key, Date.now());
+      if (!mayIngest(c)) return null;
+      noteHint(key, Date.now());
       await d.ingest(domain, tx);
       rows = d.store.byTx(domain, tx);
     }
@@ -120,7 +159,8 @@ export function createApi(d: ApiDeps): Hono {
   app.get("/v1/transfers/:domain/:tx", async (c) => {
     const t = parseTarget(c.req.param("domain"), c.req.param("tx"));
     if ("error" in t) return c.json({ error: t.error }, 400);
-    const rows = await lookup(t.domain, t.tx, false);
+    const rows = await lookup(c, t.domain, t.tx, false);
+    if (!rows) return tooMany(c);
     if (rows.length === 0) return c.json({ error: "no Injective CCTP burn in that transaction" }, 404);
     return c.json({ transfers: view(rows) });
   });
@@ -131,12 +171,17 @@ export function createApi(d: ApiDeps): Hono {
     const t = parseTarget(body.sourceDomain, body.txHash);
     if ("error" in t) return c.json({ error: t.error }, 400);
     if (typeof body.app === "string" && APP_RE.test(body.app)) d.store.noteApp(t.domain, t.tx, body.app, Date.now());
-    const rows = await lookup(t.domain, t.tx, true);
+    const rows = await lookup(c, t.domain, t.tx, true);
+    if (!rows) return tooMany(c);
     return c.json({ transfers: view(rows) }, rows.length ? 200 : 202);
   });
 
   if (d.siteDir) serveSite(app, d.siteDir);
 
-  app.onError((err, c) => c.json({ error: err.message.split("\n")[0] }, 500));
+  // The message can carry RPC or SQLite internals: log it, answer generically.
+  app.onError((err, c) => {
+    d.log?.error("api error", { path: c.req.path, error: err.message });
+    return c.json({ error: "internal error" }, 500);
+  });
   return app;
 }

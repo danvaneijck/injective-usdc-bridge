@@ -261,7 +261,11 @@ async function readyRow(store: Store, clock: Clock, spec: Parameters<typeof burn
   expect(store.byTx(6, TX)[0]?.phase).toBe("ready");
 }
 
-function relayer(store: Store, clock: Clock, opts: { mode?: "shadow" | "relay"; simulateFails?: boolean; used?: () => boolean } = {}) {
+function relayer(
+  store: Store,
+  clock: Clock,
+  opts: { mode?: "shadow" | "relay"; simulateFails?: boolean; used?: () => boolean; minRelayPlain?: bigint } = {},
+) {
   const calls: unknown[] = [];
   const sent: { to: string; data: string }[] = [];
   const wallet = {
@@ -281,6 +285,7 @@ function relayer(store: Store, clock: Clock, opts: { mode?: "shadow" | "relay"; 
     bridgeReceiver: RECEIVER,
     depositGraceSec: 15,
     legacyGraceSec: 120,
+    minRelayPlain: opts.minRelayPlain,
     isNonceUsed: async () => opts.used?.() ?? false,
     log: silentLogger,
     now: clock.now,
@@ -300,6 +305,19 @@ describe("Relayer", () => {
     await r.tick();
     expect(sent[0]?.to).toBe(CCTP_CONTRACTS.mainnet.messageTransmitter);
     expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "delivered", minted_by: "relayer", mint_tx: `0x${"cd".repeat(32)}` });
+  });
+
+  it("leaves a plain deposit under the relay floor for the depositor to mint", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    await readyRow(store, clock, { amount: 1n });
+    const { r, sent } = relayer(store, clock, { minRelayPlain: 100_000n });
+    clock.advance(16_000);
+    expect(await r.tick()).toBe(0);
+    clock.advance(3_600_000);
+    await r.tick();
+    expect(sent).toHaveLength(0);
+    expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "ready", last_error: "below the relay floor: left for self-mint" });
   });
 
   it("gas-drop deposits go through BridgeReceiver; v1 ones through their v1 receiver", async () => {

@@ -163,4 +163,23 @@ describe("site", () => {
     expect(await api.json()).toEqual({ error: "not found" });
     expect((await app.request("/v1/health")).headers.get("content-type")).toMatch(/json/);
   });
+
+  it("limits chain lookups per client and keeps 500s generic", async () => {
+    const { app, ingest } = setup();
+    const hash = (i: number) => `0x${i.toString(16).padStart(64, "0")}`;
+    const statuses: number[] = [];
+    for (let i = 1; i <= 32; i++) {
+      statuses.push((await app.request(`/v1/transfers/6/${hash(i)}`, { headers: { "cf-connecting-ip": "203.0.113.9" } })).status);
+    }
+    expect(ingest).toHaveBeenCalledTimes(30);
+    expect(statuses.slice(30)).toEqual([429, 429]);
+    // Another client is not affected.
+    const other = await app.request(`/v1/transfers/6/${hash(99)}`, { headers: { "cf-connecting-ip": "198.51.100.1" } });
+    expect(other.status).toBe(404);
+
+    ingest.mockRejectedValueOnce(new Error("rpc https://secret.example/key=abc: 500"));
+    const res = await app.request(`/v1/transfers/6/${hash(100)}`, { headers: { "cf-connecting-ip": "198.51.100.1" } });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal error" });
+  });
 });
