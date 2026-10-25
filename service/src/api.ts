@@ -34,7 +34,17 @@ const MAX_TRACKED = 10_000;
 
 /** The client: the origin only accepts Cloudflare, which sets CF-Connecting-IP itself. */
 function clientKey(c: Context): string {
-  return c.req.header("cf-connecting-ip")?.trim() || c.req.header("x-real-ip")?.trim() || "unknown";
+  return ipKey(c.req.header("cf-connecting-ip")?.trim() || c.req.header("x-real-ip")?.trim() || "unknown");
+}
+
+/** An IPv6 client is its /64: one host holds a whole prefix and could rotate through it. IPv4 as is. */
+export function ipKey(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const [head, tail] = ip.toLowerCase().split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
 
 /**

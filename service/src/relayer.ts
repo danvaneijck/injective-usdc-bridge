@@ -14,6 +14,16 @@ import type { Mode } from "./config.js";
 import { relayRetryDelay } from "./timing.js";
 
 const RELAYABLE: Kind[] = ["plain", "gas_drop", "legacy_gas_drop"];
+
+/**
+ * A deposit the relayer leaves for its depositor to mint: any kind we relay,
+ * below the floor. Anyone can burn 1 micro-USDC to Injective, many per tx, and
+ * name a receiver as the caller; relaying each would spend more INJ than it
+ * moves. A real gas-drop deposit is far above it: the drop fee alone is $0.50.
+ */
+export function belowRelayFloor(row: Pick<TransferRow, "kind" | "amount">, minRelay: bigint): boolean {
+  return RELAYABLE.includes(row.kind) && BigInt(row.amount) < minRelay;
+}
 const MAX_ATTEMPTS = 8;
 /**
  * eth_estimateGas under-reports on Injective (Choice v2 measured it), and other
@@ -34,8 +44,8 @@ export interface RelayerDeps {
   bridgeReceiver?: Address;
   depositGraceSec: number;
   legacyGraceSec: number;
-  /** Plain deposits below this (base units) are never relayed. 0n relays everything. */
-  minRelayPlain?: bigint;
+  /** Deposits below this (base units), of any kind, are never relayed. 0n relays everything. */
+  minRelay?: bigint;
   isNonceUsed: (domain: number, nonce: Hex) => Promise<boolean>;
   log: Logger;
   now: () => number;
@@ -95,9 +105,7 @@ export class Relayer {
         continue;
       }
       if (row.relay_attempts >= MAX_ATTEMPTS) continue;
-      // Anyone can burn 1 micro-USDC to Injective with no destination caller, many
-      // per tx; relaying each would spend more INJ than it moves.
-      if (row.kind === "plain" && BigInt(row.amount) < (this.d.minRelayPlain ?? 0n)) {
+      if (belowRelayFloor(row, this.d.minRelay ?? 0n)) {
         this.d.store.update(row, { last_error: DUST_NOTE, next_relay_at: Number.MAX_SAFE_INTEGER }, now);
         continue;
       }

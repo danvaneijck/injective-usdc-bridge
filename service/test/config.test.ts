@@ -30,6 +30,12 @@ describe("loadConfig", () => {
     expect(loadConfig({ BRIDGE_RECEIVER: other }).bridgeReceiver).toBe(other);
   });
 
+  it("one relay floor for every kind, defaulting to 0.10 USDC, read from the old name too", () => {
+    expect(loadConfig({}).minRelay).toBe(100_000n);
+    expect(loadConfig({ MIN_RELAY_PLAIN_USDC: "0.25" }).minRelay).toBe(250_000n);
+    expect(loadConfig({ MIN_RELAY_USDC: "1", MIN_RELAY_PLAIN_USDC: "0.25" }).minRelay).toBe(1_000_000n);
+  });
+
   it("keeper defaults sit the health alarm under the refill mark, and refuse a low above its target", () => {
     const c = loadConfig({});
     expect(c.keeper).toMatchObject({ enabled: true, floatLowWei: 40_000_000_000_000_000n, relayerLowWei: 30_000_000_000_000_000n });

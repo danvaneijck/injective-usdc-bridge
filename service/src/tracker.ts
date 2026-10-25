@@ -11,7 +11,7 @@ import {
 } from "injective-usdc-bridge";
 import type { Phase, Store, TransferRow } from "./db.js";
 import type { Logger } from "./log.js";
-import { type RateLimiter, attestingDelay, expectedAttestMs, notFoundDelay, readyDelay } from "./timing.js";
+import { type RateLimiter, attestingDelay, expectedAttestMs, notFoundDelay, parkedDelay, readyDelay } from "./timing.js";
 
 const OPEN: Phase[] = ["not_found", "attesting", "ready", "expired"];
 const REATTEST_EVERY_MS = 10 * 60_000;
@@ -38,6 +38,8 @@ export interface TrackerDeps {
    * (mintFinder.ts). How a self-claim or another relayer's mint gets a link.
    */
   findMintTx?: (dstDomain: number, nonce: Hex, sinceMs: number) => Promise<string | null>;
+  /** A deposit the relayer leaves below its floor (relayer.ts belowRelayFloor): polled rarely, never re-attested. */
+  parked?: (row: TransferRow) => boolean;
   log: Logger;
   now: () => number;
   batch?: number;
@@ -197,13 +199,24 @@ export class Tracker {
       return;
     }
 
-    if (a.burn.expirationBlock > 0n) {
-      const head = await this.d.destinationBlock(row.dst_domain);
-      if (head >= a.burn.expirationBlock) {
-        await this.maybeReattest(a.m.eventNonce, now);
-        this.d.store.update(row, { ...base, phase: "expired", next_check_at: now + 30_000 }, now);
-        return;
-      }
+    const expired =
+      a.burn.expirationBlock > 0n && (await this.d.destinationBlock(row.dst_domain)) >= a.burn.expirationBlock;
+
+    // Nobody here will mint a parked deposit, so it gets no re-attestation and only a rare look.
+    if (this.d.parked?.(row)) {
+      const wait = parkedDelay(now - attestedAt);
+      this.d.store.update(
+        row,
+        { ...base, phase: expired ? "expired" : "ready", next_check_at: wait === null ? Number.MAX_SAFE_INTEGER : now + wait },
+        now,
+      );
+      return;
+    }
+
+    if (expired) {
+      await this.maybeReattest(a.m.eventNonce, now);
+      this.d.store.update(row, { ...base, phase: "expired", next_check_at: now + 30_000 }, now);
+      return;
     }
 
     this.d.store.update(row, { ...base, phase: "ready", next_check_at: now + readyDelay(now - attestedAt) }, now);
