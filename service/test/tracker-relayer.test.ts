@@ -2,7 +2,7 @@ import { type Hex, type PublicClient, toFunctionSelector } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { CCTP_CONTRACTS, addressToBytes32, encodeGasDropHook, injective } from "injective-usdc-bridge";
 import { toNewTransfer } from "../src/classify.js";
-import type { Store } from "../src/db.js";
+import type { Store, TransferRow } from "../src/db.js";
 import { decodeDepositForBurn } from "../src/indexer.js";
 import { silentLogger } from "../src/log.js";
 import { Relayer } from "../src/relayer.js";
@@ -23,7 +23,13 @@ function insertBurn(store: Store, clock: Clock, spec: Parameters<typeof burnLog>
   return args;
 }
 
-function tracker(store: Store, clock: Clock, iris: ReturnType<typeof fakeIris>, used: (d: number, n: Hex) => boolean = () => false) {
+function tracker(
+  store: Store,
+  clock: Clock,
+  iris: ReturnType<typeof fakeIris>,
+  used: (d: number, n: Hex) => boolean = () => false,
+  parked?: (row: TransferRow) => boolean,
+) {
   return new Tracker({
     store,
     iris,
@@ -31,6 +37,7 @@ function tracker(store: Store, clock: Clock, iris: ReturnType<typeof fakeIris>, 
     network: "mainnet",
     isNonceUsed: async (d, n) => used(d, n),
     destinationBlock: async () => 1_000n,
+    parked,
     log: silentLogger,
     now: clock.now,
   });
@@ -231,6 +238,27 @@ describe("Tracker", () => {
     expect(store.byTx(6, TX)[0]?.phase).toBe("expired");
     expect(calls.filter((c) => c.startsWith("reattest"))).toEqual([`reattest:${NONCE}`]);
   });
+
+  it("looks at a parked dust deposit hourly, never re-attests it, and stops after a week", async () => {
+    const store = memStore();
+    const clock = new Clock();
+    insertBurn(store, clock, { amount: 1n });
+    const calls: string[] = [];
+    const iris = fakeIris(
+      { [TX]: [attestedMessage({ src: 6, dst: 29, nonce: NONCE, mintRecipient: addressToBytes32(USER), amount: 1n, expirationBlock: 500n })] },
+      calls,
+    );
+    const t = tracker(store, clock, iris, () => false, (row) => BigInt(row.amount) < 100_000n);
+    await t.tick();
+    const row = store.byTx(6, TX)[0]!;
+    expect(row.phase).toBe("expired"); // still reported as it is
+    expect(row.next_check_at).toBe(clock.t + 3_600_000);
+
+    clock.advance(8 * 24 * 3_600_000);
+    await t.tick();
+    expect(store.byTx(6, TX)[0]?.next_check_at).toBe(Number.MAX_SAFE_INTEGER);
+    expect(calls.filter((c) => c.startsWith("reattest"))).toEqual([]);
+  });
 });
 
 function fakeInjClient(opts: { simulateFails?: boolean; calls: unknown[] }) {
@@ -264,7 +292,7 @@ async function readyRow(store: Store, clock: Clock, spec: Parameters<typeof burn
 function relayer(
   store: Store,
   clock: Clock,
-  opts: { mode?: "shadow" | "relay"; simulateFails?: boolean; used?: () => boolean; minRelayPlain?: bigint } = {},
+  opts: { mode?: "shadow" | "relay"; simulateFails?: boolean; used?: () => boolean; minRelay?: bigint } = {},
 ) {
   const calls: unknown[] = [];
   const sent: { to: string; data: string }[] = [];
@@ -285,7 +313,7 @@ function relayer(
     bridgeReceiver: RECEIVER,
     depositGraceSec: 15,
     legacyGraceSec: 120,
-    minRelayPlain: opts.minRelayPlain,
+    minRelay: opts.minRelay,
     isNonceUsed: async () => opts.used?.() ?? false,
     log: silentLogger,
     now: clock.now,
@@ -311,13 +339,31 @@ describe("Relayer", () => {
     const store = memStore();
     const clock = new Clock();
     await readyRow(store, clock, { amount: 1n });
-    const { r, sent } = relayer(store, clock, { minRelayPlain: 100_000n });
+    const { r, sent } = relayer(store, clock, { minRelay: 100_000n });
     clock.advance(16_000);
     expect(await r.tick()).toBe(0);
     clock.advance(3_600_000);
     await r.tick();
     expect(sent).toHaveLength(0);
     expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "ready", last_error: "below the relay floor: left for self-mint" });
+  });
+
+  it("leaves gas-drop and v1 gas-drop deposits under the floor too", async () => {
+    const clock = new Clock();
+    const specs = [
+      { amount: 1n, mintRecipient: addressToBytes32(RECEIVER), destinationCaller: addressToBytes32(RECEIVER), hookData: encodeGasDropHook(OTHER, 500_000n) },
+      { amount: 1n, destinationCaller: addressToBytes32(LEGACY) },
+    ];
+    for (const spec of specs) {
+      const store = memStore();
+      await readyRow(store, clock, spec);
+      expect(store.byTx(6, TX)[0]?.kind).not.toBe("plain");
+      const { r, sent } = relayer(store, clock, { minRelay: 100_000n });
+      clock.advance(200_000); // past both grace periods
+      expect(await r.tick()).toBe(0);
+      expect(sent).toHaveLength(0);
+      expect(store.byTx(6, TX)[0]).toMatchObject({ phase: "ready", last_error: "below the relay floor: left for self-mint" });
+    }
   });
 
   it("gas-drop deposits go through BridgeReceiver; v1 ones through their v1 receiver", async () => {

@@ -25,7 +25,7 @@ import { ChainIndexer, ingestTx } from "./indexer.js";
 import { CHOICE_MAINNET, Keeper, routeApi } from "./keeper.js";
 import { createLogger } from "./log.js";
 import { createMintFinder } from "./mintFinder.js";
-import { Relayer } from "./relayer.js";
+import { Relayer, belowRelayFloor } from "./relayer.js";
 import { SolanaIndexer } from "./solanaIndexer.js";
 import { RateLimiter } from "./timing.js";
 import { Tracker } from "./tracker.js";
@@ -117,6 +117,7 @@ const tracker = new Tracker({
     solanaRpcUrls,
     now,
   }),
+  parked: (row) => row.dst_domain === inj.domain && belowRelayFloor(row, config.minRelay),
   log,
   now,
 });
@@ -131,7 +132,7 @@ const relayer = new Relayer({
   bridgeReceiver: config.bridgeReceiver,
   depositGraceSec: config.depositGraceSec,
   legacyGraceSec: config.legacyGraceSec,
-  minRelayPlain: config.minRelayPlain,
+  minRelay: config.minRelay,
   isNonceUsed: reader.isNonceUsed,
   log,
   now,

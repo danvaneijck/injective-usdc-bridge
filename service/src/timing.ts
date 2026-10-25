@@ -4,6 +4,7 @@ export { expectedAttestMs } from "injective-usdc-bridge";
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 export function notFoundDelay(ageMs: number): number {
   if (ageMs < 2 * MINUTE) return 3 * SECOND;
@@ -24,6 +25,17 @@ export function readyDelay(sinceAttestMs: number): number {
   if (sinceAttestMs < HOUR) return 30 * SECOND;
   if (sinceAttestMs < 24 * HOUR) return 2 * MINUTE;
   return 15 * MINUTE;
+}
+
+/**
+ * A deposit parked below the relay floor: only its depositor will mint it, and
+ * anyone can make thousands, so look rarely and stop after a week (null). A
+ * lookup that ingests the tx still re-checks it.
+ */
+export function parkedDelay(sinceAttestMs: number): number | null {
+  if (sinceAttestMs < DAY) return HOUR;
+  if (sinceAttestMs < 7 * DAY) return 6 * HOUR;
+  return null;
 }
 
 export function relayRetryDelay(attempts: number): number {

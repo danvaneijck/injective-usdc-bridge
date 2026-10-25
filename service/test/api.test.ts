@@ -2,7 +2,7 @@ import { bech32 } from "@scure/base";
 import { hexToBytes } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { CCTP_CONTRACTS, addressToBytes32 } from "injective-usdc-bridge";
-import { createApi, normalizeAddress, normalizeTx } from "../src/api.js";
+import { createApi, ipKey, normalizeAddress, normalizeTx } from "../src/api.js";
 import { toNewTransfer } from "../src/classify.js";
 import { Health } from "../src/health.js";
 import { decodeDepositForBurn } from "../src/indexer.js";
@@ -181,5 +181,27 @@ describe("site", () => {
     const res = await app.request(`/v1/transfers/6/${hash(100)}`, { headers: { "cf-connecting-ip": "198.51.100.1" } });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "internal error" });
+  });
+
+  it("counts an IPv6 client by its /64, so rotating addresses in it shares one budget", async () => {
+    const { app, ingest } = setup();
+    const hash = (i: number) => `0x${(1000 + i).toString(16).padStart(64, "0")}`;
+    const statuses: number[] = [];
+    for (let i = 1; i <= 31; i++) {
+      const ip = `2001:db8:aa:bb:${i.toString(16)}::${i.toString(16)}`;
+      statuses.push((await app.request(`/v1/transfers/6/${hash(i)}`, { headers: { "cf-connecting-ip": ip } })).status);
+    }
+    expect(ingest).toHaveBeenCalledTimes(30);
+    expect(statuses.at(-1)).toBe(429);
+    // the next /64 over is another client
+    const other = await app.request(`/v1/transfers/6/${hash(99)}`, { headers: { "cf-connecting-ip": "2001:db8:aa:bc::1" } });
+    expect(other.status).toBe(404);
+  });
+
+  it("folds IPv6 to its /64 and leaves IPv4 as is", () => {
+    expect(ipKey("2001:db8:1:2:3:4:5:6")).toBe("2001:db8:1:2::/64");
+    expect(ipKey("2001:DB8:0001:0002::99")).toBe("2001:db8:1:2::/64");
+    expect(ipKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipKey("203.0.113.9")).toBe("203.0.113.9");
   });
 });
