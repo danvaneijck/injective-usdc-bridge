@@ -7,10 +7,14 @@ source and design notes at
 [github.com/danvaneijck/injective-usdc-bridge](https://github.com/danvaneijck/injective-usdc-bridge).
 
 ```sh
-npm install injective-usdc-bridge viem
+npm install injective-usdc-bridge viem   # the widget, or the /viem readers
+npm install injective-usdc-bridge        # the core alone
 ```
 
-`viem` is a dependency; React 18 or 19 is a peer for the widget only.
+The core has no viem: its only dependencies are `@noble/hashes`,
+`@noble/curves` and `@scure/base`. `viem` is an optional peer, needed by the
+widget (`/react`) and the chain readers (`/viem`); React 18 or 19 is an
+optional peer for the widget only.
 
 ## Widget
 
@@ -90,6 +94,17 @@ const quote = await quoteTransfer({ iris, route, amount: 25_000_000n }); // 25 U
 const plan = buildBurn({ network: "mainnet", route, quote, recipient: "0x..." });
 // send plan.approve (if present) and plan.burn with the user's wallet
 ```
+
+`burnCall` and `approveCalldata` build the same calldata from plain
+arguments. Values are viem-shaped (`0x${string}` hex, bigint amounts), so they
+pass straight to a viem client.
+
+### Chain readers (`injective-usdc-bridge/viem`)
+
+`publicClientFor`, `createChainReader` (delivery checks for
+`resolveTransfer`), `feeOverrides`, `isNonceUsed`, `readGasDropConfig` and
+`toViemChain` read chains through viem's public client. They moved here from
+the root in 0.2.0.
 
 ## License
 

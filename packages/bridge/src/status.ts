@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "./hex.js";
 import { isForwardHookData } from "./hookData.js";
 import type { IrisClient, IrisMessage } from "./iris.js";
 import {

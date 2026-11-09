@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "./hex.js";
 import { IRIS_URLS, type Network } from "./constants.js";
 
 /**

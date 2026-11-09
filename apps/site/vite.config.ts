@@ -11,6 +11,7 @@ export default defineConfig({
     alias: [
       { find: /^injective-usdc-bridge\/react\/styles\.css$/, replacement: pkg("react/styles.css") },
       { find: /^injective-usdc-bridge\/react$/, replacement: pkg("react/index.ts") },
+      { find: /^injective-usdc-bridge\/viem$/, replacement: pkg("viem.ts") },
       { find: /^injective-usdc-bridge$/, replacement: pkg("index.ts") },
     ],
   },

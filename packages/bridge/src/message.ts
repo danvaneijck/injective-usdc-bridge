@@ -7,7 +7,7 @@ import {
   pad,
   size,
   slice,
-} from "viem";
+} from "./hex.js";
 import { ZERO_BYTES32 } from "./constants.js";
 
 /**
@@ -90,7 +90,7 @@ export function decodeBurnMessage(body: Hex): BurnMessage {
 }
 
 export function addressToBytes32(address: Address): Hex {
-  return pad(getAddress(address), { size: 32 }).toLowerCase() as Hex;
+  return pad(getAddress(address), 32).toLowerCase() as Hex;
 }
 
 /** EVM view of a bytes32 field. Throws if the upper 12 bytes are not zero. */

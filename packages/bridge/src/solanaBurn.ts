@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { sha256 } from "@noble/hashes/sha2";
 import { base58, base64 } from "@scure/base";
-import { type Address, type Hex, bytesToHex, hexToBytes, isAddress } from "viem";
+import { type Address, type Hex, bytesToHex, hexToBytes, isAddress } from "./hex.js";
 import { INJECTIVE_DOMAIN, type SolanaChain } from "./chains.js";
 import { ZERO_BYTES32 } from "./constants.js";
 import { encodeGasDropHook } from "./gasDrop.js";

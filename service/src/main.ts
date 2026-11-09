@@ -7,16 +7,14 @@ import {
   bytes32ToSolana,
   chainByDomain,
   chainByKey,
-  createChainReader,
   injective,
   parseTokenAccount,
-  publicClientFor,
   solanaAccount,
   solanaRpc,
-  toViemChain,
   type EvmChain,
   type SolanaChain,
 } from "injective-usdc-bridge";
+import { createChainReader, publicClientFor, toViemChain } from "injective-usdc-bridge/viem";
 import { createApi } from "./api.js";
 import { loadConfig } from "./config.js";
 import { Store } from "./db.js";

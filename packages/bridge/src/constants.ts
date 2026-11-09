@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "./hex.js";
 
 export type Network = "mainnet" | "testnet";
 

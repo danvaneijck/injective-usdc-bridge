@@ -12,7 +12,8 @@
     "verbatimModuleSyntax": true,
     "types": ["node"],
     "paths": {
-      "injective-usdc-bridge": ["../packages/bridge/src/index.ts"]
+      "injective-usdc-bridge": ["../packages/bridge/src/index.ts"],
+      "injective-usdc-bridge/viem": ["../packages/bridge/src/viem.ts"]
     }
   },
   "include": ["src", "test", "scripts"]

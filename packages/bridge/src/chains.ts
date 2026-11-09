@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import type { Address } from "./hex.js";
 import type { Network } from "./constants.js";
 
 /**
