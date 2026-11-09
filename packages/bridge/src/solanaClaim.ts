@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2";
 import { base58, base64 } from "@scure/base";
-import { type Hex, bytesToHex, hexToBytes } from "viem";
+import { type Hex, bytesToHex, hexToBytes } from "./hex.js";
 import type { SolanaChain } from "./chains.js";
 import { ZERO_BYTES32 } from "./constants.js";
 import { decodeBurnMessage, decodeMessage } from "./message.js";

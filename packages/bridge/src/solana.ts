@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { sha256 } from "@noble/hashes/sha2";
 import { base58, base64 } from "@scure/base";
-import { type Hex, bytesToHex, hexToBytes, size } from "viem";
+import { type Hex, bytesToHex, hexToBytes, size } from "./hex.js";
 
 /** CCTP V2 MessageTransmitter program (same id on mainnet and devnet). */
 export const SOLANA_MESSAGE_TRANSMITTER_V2 = "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC";

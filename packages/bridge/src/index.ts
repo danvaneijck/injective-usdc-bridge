@@ -1,3 +1,4 @@
+export type { Address, Hex } from "./hex.js";
 export * from "./constants.js";
 export * from "./abis.js";
 export * from "./chains.js";
@@ -8,7 +9,6 @@ export * from "./iris.js";
 export * from "./quote.js";
 export * from "./burn.js";
 export * from "./status.js";
-export * from "./rpc.js";
 export * from "./solana.js";
 export * from "./solanaBurn.js";
 export * from "./solanaClaim.js";

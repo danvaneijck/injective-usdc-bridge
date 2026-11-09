@@ -1,6 +1,6 @@
-import { type Hex, concat, pad, size, slice, stringToHex, toHex } from "viem";
+import { type Hex, concat, numberToHex, size, slice, stringToHex } from "./hex.js";
 
-const FORWARD_MAGIC = stringToHex("cctp-forward", { size: 24 });
+const FORWARD_MAGIC = stringToHex("cctp-forward", 24);
 
 /**
  * Circle Forwarding Service request, version 0 with no extra Circle data:
@@ -10,8 +10,8 @@ const FORWARD_MAGIC = stringToHex("cctp-forward", { size: 24 });
  */
 export const FORWARD_HOOK_DATA: Hex = concat([
   FORWARD_MAGIC,
-  pad(toHex(0), { size: 4 }),
-  pad(toHex(0), { size: 4 }),
+  numberToHex(0, 4),
+  numberToHex(0, 4),
 ]);
 
 export function isForwardHookData(hookData: Hex): boolean {
@@ -27,12 +27,12 @@ export function isForwardHookData(hookData: Hex): boolean {
  */
 export function forwardHookDataWithAccountSetup(owner: Hex): Hex {
   if (size(owner) !== 32) throw new Error("owner must be 32 bytes");
-  return concat([FORWARD_MAGIC, pad(toHex(0), { size: 4 }), pad(toHex(33), { size: 4 }), "0x01", owner]);
+  return concat([FORWARD_MAGIC, numberToHex(0, 4), numberToHex(33, 4), "0x01", owner]);
 }
 
 /** The wallet named in an account-setup forwarding request, if this is one. */
 export function forwardSetupOwner(hookData: Hex): Hex | null {
   if (!isForwardHookData(hookData) || size(hookData) < 65) return null;
-  if (slice(hookData, 28, 32) !== pad(toHex(33), { size: 4 }) || slice(hookData, 32, 33) !== "0x01") return null;
+  if (slice(hookData, 28, 32) !== numberToHex(33, 4) || slice(hookData, 32, 33) !== "0x01") return null;
   return slice(hookData, 33, 65);
 }

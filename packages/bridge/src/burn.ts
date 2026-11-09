@@ -1,7 +1,7 @@
-import { type Address, type Hex, encodeFunctionData, isAddress } from "viem";
-import { erc20Abi, tokenMessengerV2Abi } from "./abis.js";
+import { encodeCall } from "./abiEncode.js";
 import { CCTP_CONTRACTS, type Network, ZERO_BYTES32 } from "./constants.js";
 import { encodeGasDropHook } from "./gasDrop.js";
+import { type Address, type Hex, isAddress } from "./hex.js";
 import { FORWARD_HOOK_DATA, forwardHookDataWithAccountSetup } from "./hookData.js";
 import { addressToBytes32 } from "./message.js";
 import { type Quote, type Route, RouteError, routeDirection } from "./quote.js";
@@ -81,34 +81,16 @@ export function buildBurn(opts: BuildBurnOptions): BurnPlan {
   const { tokenMessenger } = CCTP_CONTRACTS[network];
   const destinationCaller = ZERO_BYTES32;
 
-  const data = quote.forwarded
-    ? encodeFunctionData({
-        abi: tokenMessengerV2Abi,
-        functionName: "depositForBurnWithHook",
-        args: [
-          quote.amount,
-          route.destination.domain,
-          mintRecipient,
-          route.source.usdc,
-          destinationCaller,
-          quote.maxFee,
-          quote.minFinalityThreshold,
-          hookData,
-        ],
-      })
-    : encodeFunctionData({
-        abi: tokenMessengerV2Abi,
-        functionName: "depositForBurn",
-        args: [
-          quote.amount,
-          route.destination.domain,
-          mintRecipient,
-          route.source.usdc,
-          destinationCaller,
-          quote.maxFee,
-          quote.minFinalityThreshold,
-        ],
-      });
+  const data = burnCall({
+    amount: quote.amount,
+    destinationDomain: route.destination.domain,
+    mintRecipient,
+    burnToken: route.source.usdc,
+    destinationCaller,
+    maxFee: quote.maxFee,
+    minFinalityThreshold: quote.minFinalityThreshold,
+    hookData: quote.forwarded ? hookData : undefined,
+  });
 
   return {
     approve: approveCall(route.source.usdc, tokenMessenger, quote.amount, opts.allowance),
@@ -140,19 +122,15 @@ function buildGasDropBurn(
   const { tokenMessenger } = CCTP_CONTRACTS[network];
   const receiver = addressToBytes32(gasDrop.receiver);
   const hookData = encodeGasDropHook(opts.recipient, gasDrop.maxDropFee);
-  const data = encodeFunctionData({
-    abi: tokenMessengerV2Abi,
-    functionName: "depositForBurnWithHook",
-    args: [
-      quote.amount,
-      route.destination.domain,
-      receiver,
-      route.source.usdc,
-      receiver,
-      quote.maxFee,
-      quote.minFinalityThreshold,
-      hookData,
-    ],
+  const data = burnCall({
+    amount: quote.amount,
+    destinationDomain: route.destination.domain,
+    mintRecipient: receiver,
+    burnToken: route.source.usdc,
+    destinationCaller: receiver,
+    maxFee: quote.maxFee,
+    minFinalityThreshold: quote.minFinalityThreshold,
+    hookData,
   });
   return {
     approve: approveCall(route.source.usdc, tokenMessenger, quote.amount, opts.allowance),
@@ -173,7 +151,46 @@ function approveCall(
   if (allowance !== undefined && allowance >= amount) return undefined;
   return {
     to: usdc,
-    data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }),
+    data: approveCalldata(spender, amount),
     value: 0n,
   };
+}
+
+/** TokenMessengerV2 burn arguments; `hookData` picks depositForBurnWithHook. */
+export interface BurnArgs {
+  amount: bigint;
+  destinationDomain: number;
+  mintRecipient: Hex;
+  burnToken: Address;
+  destinationCaller: Hex;
+  maxFee: bigint;
+  minFinalityThreshold: number;
+  hookData?: Hex;
+}
+
+/** Calldata for depositForBurn, or depositForBurnWithHook when there is hook data. */
+export function burnCall(a: BurnArgs): Hex {
+  const args = [
+    { type: "uint", bits: 256, value: a.amount },
+    { type: "uint", bits: 32, value: a.destinationDomain },
+    { type: "bytes32", value: a.mintRecipient },
+    { type: "address", value: a.burnToken },
+    { type: "bytes32", value: a.destinationCaller },
+    { type: "uint", bits: 256, value: a.maxFee },
+    { type: "uint", bits: 32, value: a.minFinalityThreshold },
+  ] as const;
+  return a.hookData === undefined
+    ? encodeCall("depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)", args)
+    : encodeCall("depositForBurnWithHook(uint256,uint32,bytes32,address,bytes32,uint256,uint32,bytes)", [
+        ...args,
+        { type: "bytes", value: a.hookData },
+      ]);
+}
+
+/** ERC20 approve(spender, amount) calldata. */
+export function approveCalldata(spender: Address, amount: bigint): Hex {
+  return encodeCall("approve(address,uint256)", [
+    { type: "address", value: spender },
+    { type: "uint", bits: 256, value: amount },
+  ]);
 }

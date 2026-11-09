@@ -13,9 +13,9 @@ import {
   type EvmChain,
   INJECTIVE_DOMAIN,
   type Network,
-  publicClientFor,
   tokenMessengerV2Abi,
 } from "injective-usdc-bridge";
+import { publicClientFor } from "injective-usdc-bridge/viem";
 import { type ClassifyContext, type DepositForBurnArgs, isRelevant, toNewTransfer } from "./classify.js";
 import type { NewTransfer, Store } from "./db.js";
 import type { Logger } from "./log.js";

@@ -5,9 +5,9 @@ import {
   type Network,
   bridgeReceiverAbi,
   bytes32ToAddress,
-  feeOverrides,
   messageTransmitterV2Abi,
 } from "injective-usdc-bridge";
+import { feeOverrides } from "injective-usdc-bridge/viem";
 import type { Kind, Store, TransferRow } from "./db.js";
 import type { Logger } from "./log.js";
 import type { Mode } from "./config.js";

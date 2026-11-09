@@ -12,7 +12,8 @@ import {
   parseAbi,
   zeroAddress,
 } from "viem";
-import { type EvmChain, bridgeReceiverAbi, erc20Abi, feeOverrides } from "injective-usdc-bridge";
+import { type EvmChain, bridgeReceiverAbi, erc20Abi } from "injective-usdc-bridge";
+import { feeOverrides } from "injective-usdc-bridge/viem";
 import type { Logger } from "./log.js";
 
 /**

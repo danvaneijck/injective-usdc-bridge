@@ -1,3 +1,6 @@
+// The readers that need viem's public client. They live under the
+// `injective-usdc-bridge/viem` subpath so the core stays free of viem;
+// viem is an optional peer dependency, needed only here and by the widget.
 import {
   type Chain as ViemChain,
   type Hex,
@@ -10,6 +13,8 @@ import {
 import { messageTransmitterV2Abi } from "./abis.js";
 import { type EvmChain, chainByDomain } from "./chains.js";
 import { CCTP_CONTRACTS, type Network } from "./constants.js";
+import { type GasDropConfig, bridgeReceiverAbi } from "./gasDrop.js";
+import type { Address } from "./hex.js";
 import { isSolanaNonceUsed } from "./solana.js";
 
 export function toViemChain(chain: EvmChain, rpcUrls?: readonly string[]): ViemChain {
@@ -118,4 +123,16 @@ export async function feeOverrides(
   const baseFee = block?.baseFeePerGas ?? 0n;
   const priority = tip > floor ? tip : floor;
   return { maxFeePerGas: baseFee + baseFee / 8n + priority, maxPriorityFeePerGas: priority };
+}
+
+export async function readGasDropConfig(
+  client: PublicClient,
+  receiver: Address,
+): Promise<GasDropConfig> {
+  const [dropWei, dropFee, paused] = await Promise.all([
+    client.readContract({ address: receiver, abi: bridgeReceiverAbi, functionName: "dropWei" }),
+    client.readContract({ address: receiver, abi: bridgeReceiverAbi, functionName: "dropFee" }),
+    client.readContract({ address: receiver, abi: bridgeReceiverAbi, functionName: "dropsPaused" }),
+  ]);
+  return { receiver, dropWei, dropFee, paused, available: dropWei > 0n && !paused };
 }

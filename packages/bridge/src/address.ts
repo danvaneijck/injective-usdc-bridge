@@ -1,5 +1,5 @@
 import { bech32 } from "@scure/base";
-import { type Address, bytesToHex, getAddress, hexToBytes, isAddress } from "viem";
+import { type Address, bytesToHex, getAddress, hexToBytes, isAddress } from "./hex.js";
 
 /**
  * An Injective account is one secp256k1 key with two spellings: the 0x
